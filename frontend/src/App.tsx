@@ -379,14 +379,14 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] md:min-h-screen flex flex-col">
       <Header
         onMenuToggle={() => setIsMenuOpen(!isMenuOpen)}
         isMenuOpen={isMenuOpen}
       />
       
-      <main className="flex-1 py-8">
-        <Container className={billSplitter.state.currentStep === 3 ? 'px-0 sm:px-6 lg:px-8' : undefined}>
+      <main className="flex-1 py-6 md:py-8">
+        <Container className={billSplitter.state.currentStep === 3 ? 'px-4 sm:px-6 lg:px-8' : undefined}>
           {/* Session Error - now only for localStorage errors */}
           {session.state.error && (
             <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">

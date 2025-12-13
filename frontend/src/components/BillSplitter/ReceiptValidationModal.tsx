@@ -325,64 +325,71 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
         }}
         style={style}
         className={[
-          'relative grid grid-cols-12 gap-2 p-2 pr-10 bg-white border border-gray-200 rounded-md',
-          isDragging ? 'shadow-lg ring-2 ring-primary-200' : '',
+          'flex items-start gap-2 md:gap-3 p-2.5 md:p-3 bg-white border border-gray-200 rounded-md transition-shadow',
+          isDragging ? 'shadow-md ring-2 ring-primary-200' : 'hover:shadow-sm',
         ].join(' ')}
       >
-        <button
-          ref={setActivatorNodeRef}
-          type="button"
-          className="md:hidden absolute left-2 top-2 p-1 text-gray-400 hover:text-gray-600"
-          style={{ touchAction: 'none' }}
-          aria-label="Reorder item"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
+        <div className="flex items-stretch">
+          <button
+            ref={setActivatorNodeRef}
+            type="button"
+            className="flex h-full min-h-[44px] w-9 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-400 hover:text-gray-700 hover:border-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 cursor-grab active:cursor-grabbing"
+            style={{ touchAction: 'none' }}
+            aria-label="Reorder item"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        </div>
 
-        <input
-          type="text"
-          value={item.name}
-          onChange={(e) => handleItemChange(index, 'name', e.target.value)}
-          placeholder="Item name"
-          ref={(el) => {
-            if (item.__id) itemNameInputRefs.current[item.__id] = el;
-          }}
-          className="col-span-12 md:col-span-6 h-9 pl-9 md:pl-2 pr-2 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        />
-        <input
-          type="number"
-          value={item.quantity}
-          onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
-          placeholder="Qty"
-          className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1 border rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        />
-        <input
-          type="number"
-          step="0.01"
-          value={item.unit_price}
-          onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-          placeholder="Unit"
-          className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1 border rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-        />
-        <input
-          type="number"
-          step="0.01"
-          value={item.total_price}
-          readOnly
-          tabIndex={-1}
-          aria-readonly="true"
-          className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1 border rounded-md text-sm text-right bg-gray-50 text-gray-700 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-        />
-        <button
-          onClick={() => handleDeleteItem(index)}
-          className="absolute right-2 top-2 md:top-1/2 md:-translate-y-1/2 p-1 text-red-500 hover:bg-red-50 rounded"
-          type="button"
-          aria-label="Delete item"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <div className="grid grid-cols-12 gap-2 flex-1 min-w-0">
+          <input
+            type="text"
+            value={item.name}
+            onChange={(e) => handleItemChange(index, 'name', e.target.value)}
+            placeholder="Item name"
+            ref={(el) => {
+              if (item.__id) itemNameInputRefs.current[item.__id] = el;
+            }}
+            className="col-span-12 md:col-span-6 h-9 md:h-9 px-2 py-1.5 border rounded-md text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+          <input
+            type="number"
+            value={item.quantity}
+            onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
+            placeholder="Qty"
+            className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+          />
+          <input
+            type="number"
+            step="0.01"
+            value={item.unit_price}
+            onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
+            placeholder="Unit"
+            className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+          />
+          <input
+            type="number"
+            step="0.01"
+            value={item.total_price}
+            readOnly
+            tabIndex={-1}
+            aria-readonly="true"
+            className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-100 text-gray-700 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+          />
+        </div>
+
+        <div className="flex items-start pt-0.5">
+          <button
+            onClick={() => handleDeleteItem(index)}
+            className="p-2 text-red-500 hover:bg-red-50 rounded-md"
+            type="button"
+            aria-label="Delete item"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     );
   };
@@ -663,13 +670,13 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
           </div>
 
           {/* Right Panel - Editable Fields */}
-          <div ref={editorScrollRef} className="w-full md:w-1/2 min-h-0 p-4 md:p-5 overflow-y-auto bg-white flex-[3] md:flex-1">
+          <div ref={editorScrollRef} className="w-full md:w-1/2 min-h-0 p-4 md:p-5 overflow-y-auto bg-gradient-to-b from-gray-50 via-white to-white flex-[3] md:flex-1">
             {/* Items Section */}
             <div className="mb-7">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-2">
                 <h3 className="font-semibold text-gray-900">Items</h3>
-                <Button size="sm" variant="outline" onClick={handleAddItem} type="button">
-                  <Plus className="h-4 w-4 mr-1" /> Add Item
+                <Button size="sm" variant="outline" onClick={handleAddItem} type="button" className="px-2.5 py-1 text-xs">
+                  <Plus className="h-4 w-4 mr-1" /> Add
                 </Button>
               </div>
               <div className="hidden md:grid grid-cols-12 gap-2 px-2 py-2 mb-2 text-[10px] uppercase tracking-wide text-gray-500 bg-white border border-gray-200 rounded-md">
@@ -713,8 +720,11 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
 
             {/* Taxes Section */}
             <div className="mb-7 pb-7 border-b">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">Taxes & Charges</h3>
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h3 className="font-semibold text-gray-900">Taxes & Charges</h3>
+                  <p className="text-xs text-gray-500">Add percentage or flat amounts. We will keep totals in sync.</p>
+                </div>
                 <Button size="sm" variant="outline" onClick={handleAddTax} type="button">
                   <Plus className="h-4 w-4 mr-1" /> Add Tax/Charge
                 </Button>
@@ -724,7 +734,7 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                   <div
                     key={index}
                     ref={(el) => { taxRowRefs.current[index] = el; }}
-                    className="flex flex-col md:flex-row gap-2 md:items-center"
+                    className="flex flex-col md:flex-row gap-2 md:items-center rounded-lg border border-gray-200 bg-white/80 p-3 shadow-sm"
                   >
                     <input
                       type="text"
@@ -732,7 +742,7 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                       onChange={(e) => handleTaxChange(index, 'name', e.target.value)}
                       placeholder="Tax/Charge name"
                       ref={(el) => { taxNameInputRefs.current[index] = el; }}
-                      className="flex-1 px-2 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="flex-1 h-10 px-3 py-2 border rounded-md text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                     <input
                       type="number"
@@ -740,11 +750,11 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                       value={tax.amount}
                       onChange={(e) => handleTaxChange(index, 'amount', parseFloat(e.target.value) || 0)}
                       placeholder="Amount"
-                      className="w-full md:w-28 px-2 py-1 border rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
+                      className="w-full md:w-32 h-10 px-3 py-2 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                     <button
                       onClick={() => handleDeleteTax(index)}
-                      className="p-1 text-red-500 hover:bg-red-50 rounded"
+                      className="self-start md:self-center p-2 text-red-500 hover:bg-red-50 rounded-md"
                       type="button"
                       aria-label="Delete tax or charge"
                     >
@@ -758,10 +768,20 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
             {/* Totals Section */}
             <div className="space-y-3">
               <h3 className="font-semibold text-gray-900">Totals</h3>
-              <div className="flex justify-between items-center">
-                <label className="text-sm font-medium text-gray-900">Total</label>
-                <div className="w-36 px-3 py-2 border rounded-md text-sm font-semibold text-right bg-primary-50 border-primary-200 text-primary-800">
-                  {total.toFixed(2)}
+              <div className="rounded-xl border border-primary-100 bg-primary-50/80 p-4 space-y-2">
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Subtotal</span>
+                  <span className="font-medium text-gray-900">{subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-700">
+                  <span>Taxes & charges</span>
+                  <span className="font-medium text-gray-900">{taxesAndChargesTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center pt-2 border-t border-primary-100">
+                  <span className="text-sm font-semibold text-primary-900">Grand total</span>
+                  <div className="px-3 py-2 rounded-md text-sm font-semibold text-primary-900 bg-white shadow-inner min-w-[6rem] text-right">
+                    {total.toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>

@@ -124,7 +124,7 @@ export const ParticipantManager: React.FC<ParticipantManagerProps> = ({
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8 px-4">
+      <div className="bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8 px-4">
         <div className="max-w-4xl mx-auto">
           {/* Hero Section */}
           <div className="text-center mb-8">

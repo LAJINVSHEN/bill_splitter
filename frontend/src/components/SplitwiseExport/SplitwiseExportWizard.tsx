@@ -326,13 +326,13 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={closeAndReset} title="Export to Splitwise" size="xl">
-      <div className="space-y-4">
-        <div className="rounded-xl bg-gradient-to-r from-primary-600 to-indigo-600 p-5 text-white">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm opacity-90">Create a Splitwise expense</div>
-              <div className="text-xl font-semibold">Export this bill split</div>
-              <div className="mt-1 text-sm opacity-90">
+      <div className="space-y-4 sm:space-y-5">
+        <div className="rounded-xl bg-gradient-to-r from-primary-600 to-indigo-600 p-4 sm:p-5 text-white shadow-sm">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="space-y-1">
+              <div className="text-xs sm:text-sm opacity-90">Create a Splitwise expense</div>
+              <div className="text-lg sm:text-xl font-semibold leading-tight">Export this bill split</div>
+              <div className="text-sm opacity-90">
                 Total: <span className="font-medium">{formatCurrency(totalBill)}</span>
               </div>
             </div>
@@ -344,7 +344,7 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
         </div>
 
         {/* Stepper */}
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {steps.map((s, idx) => {
             const isActive = s.id === step;
             const isDone = currentStepIndex > idx;

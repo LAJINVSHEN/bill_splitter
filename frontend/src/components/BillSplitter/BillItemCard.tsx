@@ -62,11 +62,11 @@ export const BillItemCard: React.FC<BillItemCardProps> = ({
 
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
-      <CardContent className="p-3 md:p-4">
-        <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center space-x-2 mb-2 min-w-0">
+    <Card padding="none" className="hover:shadow-md transition-shadow border border-gray-100 w-full overflow-hidden">
+      <CardContent className="p-3 md:p-4 min-w-0">
+        <div className="flex flex-col gap-3 md:grid md:grid-cols-[minmax(0,1fr)_minmax(220px,0.9fr)] md:items-start md:gap-4 w-full min-w-0">
+          <div className="flex-1 min-w-0 space-y-2.5">
+            <div className="flex items-center space-x-2 min-w-0">
               <Package className="h-4 w-4 text-gray-400" />
               <h4 className="min-w-0 flex-1 text-sm md:text-base font-medium text-gray-900 truncate">
                 {item.name}
@@ -112,10 +112,10 @@ export const BillItemCard: React.FC<BillItemCardProps> = ({
             )}
           </div>
 
-          <div className="w-full md:w-auto flex-shrink-0 md:ml-4">
-            <div className="md:text-right">
+          <div className="w-full md:w-auto flex-shrink-0 md:justify-self-end md:min-w-[220px] min-w-0">
+            <div className="text-left md:text-right space-y-2 w-full">
               <p className="text-xs md:text-sm text-gray-500 mb-2">Select people:</p>
-              <div className="flex flex-wrap gap-1">
+              <div className="flex flex-wrap gap-2 justify-center md:justify-end w-full min-w-0">
                 {participants.map((person) => {
                   const isSelected = assignment.isMultipleAssignment 
                     ? assignment.splits.some(s => s.personId === person.id)
@@ -128,11 +128,11 @@ export const BillItemCard: React.FC<BillItemCardProps> = ({
                       size="sm"
                       onClick={() => handleAssign(person.id)}
                       disabled={disabled}
-                      className="text-[11px] md:text-xs px-2 py-1 max-w-full"
+                      className="text-[11px] md:text-xs px-3 py-2 min-w-[44px] max-w-full justify-center"
                       title={person.name}
                     >
                       {isSelected && <Check className="h-3 w-3 mr-1" />}
-                      <span className="truncate max-w-[7.5rem] md:max-w-none">{person.name}</span>
+                      <span className="truncate max-w-[6.5rem] md:max-w-none">{person.name}</span>
                     </Button>
                   );
                 })}
