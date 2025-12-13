@@ -29,7 +29,13 @@ export const PersonSelector: React.FC<PersonSelectorProps> = ({
   };
 
   const handleNumberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = parseInt(e.target.value) || 0;
+    const rawValue = e.target.value;
+    if (rawValue === '') {
+      onNumberOfPeopleChange(0);
+      return;
+    }
+
+    const value = parseInt(rawValue, 10);
     if (value >= 1 && value <= 20) {
       onNumberOfPeopleChange(value);
     }
@@ -64,8 +70,9 @@ export const PersonSelector: React.FC<PersonSelectorProps> = ({
               type="number"
               min="1"
               max="20"
-              value={numberOfPeople}
+              value={numberOfPeople === 0 ? '' : numberOfPeople}
               onChange={handleNumberChange}
+              onFocus={(e) => e.target.select()}
               className="w-20 text-center text-3xl font-bold border-0 border-b-2 border-primary-600 focus:outline-none focus:border-primary-700"
               disabled={disabled}
             />

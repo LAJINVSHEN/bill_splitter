@@ -356,17 +356,21 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
           />
           <input
             type="number"
-            value={item.quantity}
+            inputMode="numeric"
+            value={item.quantity === 0 ? '' : item.quantity}
             onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
             placeholder="Qty"
+            onFocus={(e) => e.target.select()}
             className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
           />
           <input
             type="number"
             step="0.01"
-            value={item.unit_price}
+            inputMode="decimal"
+            value={item.unit_price === 0 ? '' : item.unit_price}
             onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
             placeholder="Unit"
+            onFocus={(e) => e.target.select()}
             className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
           />
           <input
@@ -747,9 +751,11 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                     <input
                       type="number"
                       step="0.01"
-                      value={tax.amount}
+                      inputMode="decimal"
+                      value={tax.amount === 0 ? '' : tax.amount}
                       onChange={(e) => handleTaxChange(index, 'amount', parseFloat(e.target.value) || 0)}
                       placeholder="Amount"
+                      onFocus={(e) => e.target.select()}
                       className="w-full md:w-32 h-10 px-3 py-2 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
                     />
                     <button

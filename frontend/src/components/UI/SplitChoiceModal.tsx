@@ -27,6 +27,11 @@ const fairDivideCents = (amountCents: number, people: number): number[] => {
   return shares;
 };
 
+const formatAmountInput = (value: number) => {
+  if (!Number.isFinite(value)) return '';
+  return value === 0 ? '' : String(value);
+};
+
 export const SplitChoiceModal: React.FC<SplitChoiceModalProps> = ({
   isOpen,
   onClose,
@@ -178,11 +183,16 @@ export const SplitChoiceModal: React.FC<SplitChoiceModalProps> = ({
                     </div>
                   <div className="w-full sm:w-52">
                     <Input
-                      type="number"
-                      step="0.01"
+                      type="text"
                       inputMode="decimal"
-                      value={Number.isFinite(split.amount) ? split.amount : 0}
-                      onChange={(e) => updateSplitAmount(split.personId, parseFloat(e.target.value) || 0)}
+                      placeholder="0.00"
+                      value={formatAmountInput(split.amount)}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const raw = e.target.value.trim();
+                        const nextAmount = raw === '' ? 0 : parseFloat(raw);
+                        updateSplitAmount(split.personId, Number.isFinite(nextAmount) ? nextAmount : 0);
+                      }}
                       className="text-sm"
                     />
                   </div>

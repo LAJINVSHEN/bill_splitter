@@ -22,6 +22,18 @@ const roundToCents = (value: number) => Math.round((value + Number.EPSILON) * 10
 
 const formatMoneyString = (value: number) => roundToCents(value).toFixed(2);
 
+const fairDivideCents = (amountCents: number, people: number): number[] => {
+  if (people <= 0) return [];
+  const base = Math.floor(amountCents / people);
+  const remainder = amountCents % people;
+  return Array.from({ length: people }, (_, index) => base + (index < remainder ? 1 : 0));
+};
+
+const moneyInputToCents = (raw: string | undefined) => {
+  const numeric = Number((raw ?? '').trim());
+  return Number.isFinite(numeric) ? Math.round(roundToCents(numeric) * 100) : 0;
+};
+
 export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
   isOpen,
   onClose,
@@ -44,6 +56,7 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
 
   const [mapping, setMapping] = useState<Record<string, number>>({});
   const [paidByUserId, setPaidByUserId] = useState<Record<number, string>>({});
+  const [selectedPayerIds, setSelectedPayerIds] = useState<number[]>([]);
 
   const [description, setDescription] = useState(() => `Bill split - ${new Date().toLocaleDateString()}`);
   const [currencyCode, setCurrencyCode] = useState<string>('');
@@ -114,6 +127,31 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
     };
   }, [personSplits, mapping, totalBill]);
 
+  const memberLookup = useMemo(() => {
+    const map = new Map<number, (typeof selectedMembers)[number]>();
+    for (const member of selectedMembers) {
+      map.set(member.id, member);
+    }
+    return map;
+  }, [selectedMembers]);
+
+  const defaultPayerId = useMemo(() => {
+    if (consolidatedShares.shares.length === 0) return null;
+    const shareIds = consolidatedShares.shares.map((s) => s.user_id);
+    if (me && shareIds.includes(me.id)) return me.id;
+    return shareIds[0] ?? null;
+  }, [consolidatedShares.shares, me]);
+
+  const payerOptions = useMemo(
+    () =>
+      consolidatedShares.shares.map((share) => ({
+        id: share.user_id,
+        name: memberLookup.get(share.user_id)?.display_name ?? `User ${share.user_id}`,
+        owed_cents: share.owed_cents,
+      })),
+    [consolidatedShares.shares, memberLookup]
+  );
+
   const resetAll = () => {
     setStep('connect');
     setError(null);
@@ -123,6 +161,7 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
     setSelectedGroupId(null);
     setMapping({});
     setPaidByUserId({});
+    setSelectedPayerIds([]);
     setIsCreatingExpense(false);
     setCreatedExpenseId(null);
   };
@@ -217,17 +256,46 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
     if (!isOpen) return;
     if (step !== 'preview') return;
     if (!selectedGroup) return;
+    if (!defaultPayerId) return;
 
-    // Initialize paid shares to "everyone paid their own share" (editable).
+    setSelectedPayerIds((prev) => (prev.length > 0 ? prev : [defaultPayerId]));
     setPaidByUserId((prev) => {
       if (Object.keys(prev).length > 0) return prev;
-      const next: Record<number, string> = {};
-      for (const s of consolidatedShares.shares) {
-        next[s.user_id] = (s.owed_cents / 100).toFixed(2);
-      }
-      return next;
+      return { [defaultPayerId]: formatMoneyString(consolidatedShares.cost_cents / 100) };
     });
-  }, [isOpen, step, selectedGroup, consolidatedShares.shares]);
+  }, [isOpen, step, selectedGroup, defaultPayerId, consolidatedShares.cost_cents]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (step !== 'preview') return;
+    if (selectedPayerIds.length === 1) {
+      const payerId = selectedPayerIds[0];
+      setPaidByUserId({ [payerId]: formatMoneyString(consolidatedShares.cost_cents / 100) });
+    }
+  }, [isOpen, step, selectedPayerIds, consolidatedShares.cost_cents]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (step !== 'preview') return;
+
+    if (payerOptions.length === 0) {
+      setSelectedPayerIds([]);
+      setPaidByUserId({});
+      return;
+    }
+
+    setSelectedPayerIds((prev) => {
+      const validIds = payerOptions.map((p) => p.id);
+      const filtered = prev.filter((id) => validIds.includes(id));
+      if (filtered.length === prev.length && filtered.length > 0) return prev;
+      if (filtered.length === 0) {
+        const fallbackId = payerOptions[0].id;
+        setPaidByUserId({ [fallbackId]: formatMoneyString(consolidatedShares.cost_cents / 100) });
+        return [fallbackId];
+      }
+      return filtered;
+    });
+  }, [payerOptions, isOpen, step, consolidatedShares.cost_cents]);
 
   const closeAndReset = () => {
     resetAll();
@@ -249,20 +317,63 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
     else if (step === 'preview') setStep('mapping');
   };
 
+  const distributeEvenlyToPayers = (payerIds: number[]) => {
+    if (payerIds.length === 0) return;
+    const shares = fairDivideCents(consolidatedShares.cost_cents, payerIds.length);
+    const next: Record<number, string> = {};
+    payerIds.forEach((id, index) => {
+      next[id] = formatMoneyString(shares[index] / 100);
+    });
+    setPaidByUserId(next);
+  };
+
+  const handleTogglePayer = (userId: number) => {
+    setError(null);
+    setSelectedPayerIds((prev) => {
+      const exists = prev.includes(userId);
+      let next = exists ? prev.filter((id) => id !== userId) : [...prev, userId];
+      if (next.length === 0) next = [userId];
+
+      if (next.length === 1) {
+        setPaidByUserId({ [next[0]]: formatMoneyString(consolidatedShares.cost_cents / 100) });
+      } else {
+        distributeEvenlyToPayers(next);
+      }
+      return next;
+    });
+  };
+
+  const handleEvenPayerSplit = () => {
+    if (selectedPayerIds.length === 0) return;
+    distributeEvenlyToPayers(selectedPayerIds);
+  };
+
+  const handleClearPayerAmounts = () => {
+    setPaidByUserId(() => {
+      const next: Record<number, string> = {};
+      for (const payerId of selectedPayerIds) {
+        next[payerId] = '';
+      }
+      return next;
+    });
+  };
+
   const createExpense = async () => {
     if (!sessionId || !selectedGroupId) return;
+    if (selectedPayerIds.length === 0) {
+      setError('Select at least one payer for this expense.');
+      return;
+    }
 
     setIsCreatingExpense(true);
     setError(null);
     try {
       const costStr = (consolidatedShares.cost_cents / 100).toFixed(2);
       const costCents = consolidatedShares.cost_cents;
-      const paidSumCents = consolidatedShares.shares.reduce((sum, s) => {
-        const raw = (paidByUserId[s.user_id] ?? '').trim();
-        const paid = raw ? Number(raw) : 0;
-        const paidCents = Number.isFinite(paid) ? Math.round(roundToCents(paid) * 100) : 0;
-        return sum + paidCents;
-      }, 0);
+      const paidSumCents = selectedPayerIds.reduce(
+        (sum, payerId) => sum + moneyInputToCents(paidByUserId[payerId]),
+        0
+      );
 
       if (paidSumCents !== costCents) {
         const delta = (costCents - paidSumCents) / 100;
@@ -273,9 +384,10 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
         user_id: s.user_id,
         owed_share: (s.owed_cents / 100).toFixed(2),
         paid_share: (() => {
-          const raw = (paidByUserId[s.user_id] ?? '').trim();
-          const paid = raw ? Number(raw) : 0;
-          return Number.isFinite(paid) ? formatMoneyString(paid) : '0.00';
+          const paidCents = selectedPayerIds.includes(s.user_id)
+            ? moneyInputToCents(paidByUserId[s.user_id])
+            : 0;
+          return formatMoneyString(paidCents / 100);
         })(),
       }));
 
@@ -308,19 +420,17 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
   );
 
   const paidSummary = useMemo(() => {
-    const paidCents = consolidatedShares.shares.reduce((sum, s) => {
-      const raw = (paidByUserId[s.user_id] ?? '').trim();
-      const paid = raw ? Number(raw) : 0;
-      const cents = Number.isFinite(paid) ? Math.round(roundToCents(paid) * 100) : 0;
-      return sum + cents;
-    }, 0);
+    const paidCents = selectedPayerIds.reduce(
+      (sum, payerId) => sum + moneyInputToCents(paidByUserId[payerId]),
+      0
+    );
 
     const deltaCents = consolidatedShares.cost_cents - paidCents;
     return {
       paid_cents: paidCents,
       delta_cents: deltaCents,
     };
-  }, [paidByUserId, consolidatedShares]);
+  }, [paidByUserId, selectedPayerIds, consolidatedShares.cost_cents]);
 
   if (!isOpen) return null;
 
@@ -590,98 +700,151 @@ export const SplitwiseExportWizard: React.FC<SplitwiseExportWizardProps> = ({
 
                 <div className="rounded-xl border border-gray-200 overflow-hidden">
                   <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
-                    <div className="font-semibold text-gray-900">Split preview</div>
+                    <div className="font-semibold text-gray-900">Who owes what</div>
                     <div className="text-sm text-gray-600">Total {formatCurrency(totalBill)}</div>
                   </div>
                   <div className="divide-y divide-gray-200">
                     {consolidatedShares.shares.map((s) => {
-                      const member = selectedMembers.find((m) => m.id === s.user_id);
+                      const member = memberLookup.get(s.user_id);
                       const owed = s.owed_cents / 100;
-                      const paidRaw = (paidByUserId[s.user_id] ?? '').trim();
-                      const paid = paidRaw ? Number(paidRaw) : 0;
                       return (
                         <div key={s.user_id} className="px-4 py-3 flex items-center justify-between gap-3">
-                          <div>
-                            <div className="font-medium text-gray-900">{member?.display_name ?? `User ${s.user_id}`}</div>
+                          <div className="min-w-0">
+                            <div className="font-medium text-gray-900 truncate">{member?.display_name ?? `User ${s.user_id}`}</div>
                             {s.contributor_names.length > 0 && (
                               <div className="text-sm text-gray-600">From: {s.contributor_names.join(', ')}</div>
                             )}
                           </div>
-                          <div className="text-right min-w-[220px]">
-                            <div className="text-sm text-gray-600">
-                              Owed <span className="font-semibold text-gray-900">{formatCurrency(owed)}</span>
-                            </div>
-                            <div className="mt-2">
-                              <Input
-                                label="Paid"
-                                inputMode="decimal"
-                                placeholder="0.00"
-                                value={paidByUserId[s.user_id] ?? ''}
-                                onChange={(e) =>
-                                  setPaidByUserId((prev) => ({
-                                    ...prev,
-                                    [s.user_id]: e.target.value,
-                                  }))
-                                }
-                              />
-                              <div className="mt-1 text-xs text-gray-500">Current: {formatCurrency(Number.isFinite(paid) ? paid : 0)}</div>
-                            </div>
+                          <div className="text-right">
+                            <div className="text-xs text-gray-500">Owes</div>
+                            <div className="font-semibold text-gray-900">{formatCurrency(owed)}</div>
                           </div>
                         </div>
                       );
                     })}
+                    {consolidatedShares.shares.length === 0 && (
+                      <div className="px-4 py-3 text-sm text-gray-600">No mapped participants found.</div>
+                    )}
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-gray-200 bg-white p-4">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div className="rounded-xl border border-primary-100 bg-primary-50/60 p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                     <div>
-                      <div className="font-semibold text-gray-900 flex items-center gap-2">
-                        <Sparkles className="h-4 w-4 text-primary-700" />
-                        Paid summary
+                      <div className="font-semibold text-gray-900">Who paid?</div>
+                      <div className="text-sm text-gray-700">
+                        Pick one or more payers. One payer automatically covers the full amount.
                       </div>
-                      <div className="text-sm text-gray-600">
-                        Paid total {formatCurrency(paidSummary.paid_cents / 100)} • Difference{' '}
-                        <span className={paidSummary.delta_cents === 0 ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
-                          {formatCurrency(paidSummary.delta_cents / 100)}
+                    </div>
+                    <div className="text-sm text-gray-700">
+                      Total to cover:{' '}
+                      <span className="font-semibold text-gray-900">
+                        {formatCurrency(consolidatedShares.cost_cents / 100)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {payerOptions.map((option) => {
+                      const isSelected = selectedPayerIds.includes(option.id);
+                      return (
+                        <Button
+                          key={option.id}
+                          variant={isSelected ? 'primary' : 'outline'}
+                          size="sm"
+                          onClick={() => handleTogglePayer(option.id)}
+                          className="flex items-center gap-2"
+                        >
+                          {isSelected && <CheckCircle2 className="h-4 w-4" />}
+                          <span className="truncate max-w-[10rem] text-sm">{option.name}</span>
+                        </Button>
+                      );
+                    })}
+                    {payerOptions.length === 0 && <div className="text-sm text-gray-600">No eligible payers found.</div>}
+                  </div>
+
+                  {selectedPayerIds.length === 1 && (
+                    <div className="rounded-lg border border-white/70 bg-white p-3 flex items-center justify-between gap-3">
+                      <div className="text-sm text-gray-700">
+                        {memberLookup.get(selectedPayerIds[0])?.display_name ?? `User ${selectedPayerIds[0]}`} will pay the full bill.
+                      </div>
+                      <div className="text-sm font-semibold text-gray-900">{formatCurrency(consolidatedShares.cost_cents / 100)}</div>
+                    </div>
+                  )}
+
+                  {selectedPayerIds.length > 1 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between text-sm text-gray-700">
+                        <span>Payment split</span>
+                        <span className={paidSummary.delta_cents === 0 ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}>
+                          Remaining {formatCurrency(paidSummary.delta_cents / 100)}
                         </span>
                       </div>
+                      <div className="space-y-2">
+                        {selectedPayerIds.map((payerId) => {
+                          const payer = memberLookup.get(payerId);
+                          return (
+                            <div key={payerId} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white p-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-gray-900 truncate">{payer?.display_name ?? `User ${payerId}`}</div>
+                                <div className="text-xs text-gray-500">Payer</div>
+                              </div>
+                              <div className="w-32 sm:w-40">
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  placeholder="0.00"
+                                  value={paidByUserId[payerId] ?? ''}
+                                  onFocus={(e) => e.target.select()}
+                                  onChange={(e) =>
+                                    setPaidByUserId((prev) => ({
+                                      ...prev,
+                                      [payerId]: e.target.value,
+                                    }))
+                                  }
+                                  className="text-right"
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <Button variant="outline" size="sm" onClick={handleEvenPayerSplit}>
+                          Split evenly
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={handleClearPayerAmounts}>
+                          Clear amounts
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          const next: Record<number, string> = {};
-                          for (const s of consolidatedShares.shares) next[s.user_id] = '0.00';
-                          setPaidByUserId(next);
-                        }}
-                      >
-                        Clear paid
-                      </Button>
-                      <Button
-                        variant="outline"
-                        onClick={() => {
-                          const next: Record<number, string> = {};
-                          for (const s of consolidatedShares.shares) next[s.user_id] = (s.owed_cents / 100).toFixed(2);
-                          setPaidByUserId(next);
-                        }}
-                      >
-                        Everyone paid own share
-                      </Button>
-                    </div>
-                  </div>
+                  )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button
-                    onClick={createExpense}
-                    isLoading={isCreatingExpense}
-                    disabled={!canProceedMapping || paidSummary.delta_cents !== 0}
-                  >
-                    Create Splitwise Expense
-                  </Button>
-                  <div className="text-sm text-gray-600">
-                    Cost: <span className="font-medium">{formatMoneyString(totalBill)}</span>
+                <div className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-gray-900 flex items-center gap-2">
+                      <Sparkles className="h-4 w-4 text-primary-700" />
+                      Payment summary
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Paid total {formatCurrency(paidSummary.paid_cents / 100)} - Difference{' '}
+                      <span className={paidSummary.delta_cents === 0 ? 'text-green-700 font-medium' : 'text-red-700 font-medium'}>
+                        {formatCurrency(paidSummary.delta_cents / 100)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      onClick={createExpense}
+                      isLoading={isCreatingExpense}
+                      disabled={!canProceedMapping || paidSummary.delta_cents !== 0 || selectedPayerIds.length === 0}
+                    >
+                      Create Splitwise Expense
+                    </Button>
+                    <div className="text-sm text-gray-600">
+                      Cost: <span className="font-medium">{formatMoneyString(consolidatedShares.cost_cents / 100)}</span>
+                    </div>
                   </div>
                 </div>
               </CardContent>
