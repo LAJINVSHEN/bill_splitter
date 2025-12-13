@@ -4,7 +4,7 @@ import { Button } from '@/components/UI/Button';
 import { BillItem } from '@/types/bill.types';
 import { ItemAssignment } from '@/hooks/useItemAssignment';
 import { formatCurrency } from '@/utils/formatters';
-import { Package, Users, Check } from 'lucide-react';
+import { Package, Users, Check, AlertCircle } from 'lucide-react';
 
 export interface BillItemCardProps {
   item: BillItem;
@@ -25,6 +25,15 @@ export const BillItemCard: React.FC<BillItemCardProps> = ({
   onMultipleAssign,
   disabled = false,
 }) => {
+  const assignedPeopleCount = assignment.isMultipleAssignment
+    ? assignment.splits.length
+    : assignment.assignedTo
+      ? 1
+      : 0;
+  const hasQuantityMismatch = item.quantity > 1
+    && assignedPeopleCount > 0
+    && assignedPeopleCount !== item.quantity;
+
   const handleAssign = (personId: string) => {
     // Get current selection state
     const currentAssignedPeople = assignment.isMultipleAssignment 
@@ -108,6 +117,15 @@ export const BillItemCard: React.FC<BillItemCardProps> = ({
                 >
                   Custom split
                 </Button>
+              </div>
+            )}
+
+            {hasQuantityMismatch && (
+              <div className="mt-2 flex items-start gap-2 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800 md:text-sm">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <p className="leading-snug">
+                  Quantity is {item.quantity}, but assigned to {assignedPeopleCount} {assignedPeopleCount === 1 ? 'person' : 'people'}. Adjust splits if you want them to match.
+                </p>
               </div>
             )}
           </div>

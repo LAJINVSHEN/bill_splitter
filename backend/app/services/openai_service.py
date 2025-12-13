@@ -2,7 +2,6 @@
 """
 OpenAI service for receipt data extraction using structured outputs.
 """
-import re
 from typing import Optional, Dict, Any, List
 from openai import OpenAI
 from pydantic import BaseModel, Field
@@ -116,9 +115,6 @@ class OpenAIService:
             # Validate
             try:
                 validated_dict = self._post_process_and_validate(data_dict, operation_id)
-                validated_dict["items"] = self._expand_items_to_unit_quantity(
-                    validated_dict.get("items", [])
-                )
                 
                 receipt_data = ReceiptData(
                     receipt_number=validated_dict["receipt_number"],
@@ -199,63 +195,6 @@ Return structured JSON according to the schema."""
         except Exception as e:
             logger.error(f"[{operation_id}] OpenAI extraction failed: {str(e)}")
             return None
-
-    def _expand_items_to_unit_quantity(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Expand items so each has quantity == 1.
-        Distributes totals per unit, adjusting last item for rounding.
-        """
-        expanded: List[Dict[str, Any]] = []
-        
-        for item in items:
-            try:
-                name = item.get("name")
-                quantity = int(item.get("quantity", 1))
-                unit_price = float(item.get("unit_price", 0.0))
-                total = float(item.get("total_price", item.get("total", 0.0)))
-
-                if quantity <= 1:
-                    expanded.append({
-                        "name": name,
-                        "quantity": 1,
-                        "unit_price": unit_price,
-                        "total_price": total if quantity == 1 else (total if total > 0 else unit_price)
-                    })
-                    continue
-
-                # Per-unit values
-                per_unit_total = round(total / quantity, 2) if total > 0 and quantity > 0 else round(unit_price, 2)
-                per_unit_price = per_unit_total
-
-                # Add quantity-1 items
-                for _ in range(max(quantity - 1, 0)):
-                    expanded.append({
-                        "name": name,
-                        "quantity": 1,
-                        "unit_price": per_unit_price,
-                        "total_price": per_unit_total
-                    })
-
-                # Last item gets remainder
-                accumulated = round(per_unit_total * (quantity - 1), 2)
-                last_total = max(round(total - accumulated, 2) if total > 0 else per_unit_total, 0)
-
-                expanded.append({
-                    "name": name,
-                    "quantity": 1,
-                    "unit_price": per_unit_price,
-                    "total_price": last_total
-                })
-                
-            except Exception:
-                expanded.append({
-                    "name": item.get("name"),
-                    "quantity": 1,
-                    "unit_price": item.get("unit_price", 0.0),
-                    "total_price": item.get("total_price", item.get("total", item.get("unit_price", 0.0)))
-                })
-
-        return expanded
 
     def _post_process_and_validate(self, data: Dict[str, Any], operation_id: str) -> Dict[str, Any]:
         """Delegate validation to receipt validator service."""

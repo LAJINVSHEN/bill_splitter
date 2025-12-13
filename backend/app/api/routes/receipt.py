@@ -187,11 +187,6 @@ async def validate_corrected_receipt(
                 data_dict, operation_id
             )
             
-            # Expand items to unit quantity
-            validated_data["items"] = openai_service._expand_items_to_unit_quantity(
-                validated_data.get("items", [])
-            )
-            
             # Convert back to schema
             from app.models.receipt import ReceiptData, StoreInfo, BillItem, TaxOrCharge
             
