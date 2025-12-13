@@ -239,3 +239,4 @@ dmypy.json
 # Uploads
 uploads/
 .env
+splitwise_package_for_ref/

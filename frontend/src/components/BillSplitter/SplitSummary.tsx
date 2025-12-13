@@ -5,7 +5,8 @@ import { PersonSplit } from '@/types/split.types';
 import { formatCurrency } from '@/utils/formatters';
 import { downloadFile } from '@/utils/fileHelpers';
 import { toPng } from 'html-to-image';
-import { Receipt, User, Calculator, Download, Share2, Users, Copy } from 'lucide-react';
+import { Receipt, User, Calculator, Download, Share2, Users, Copy, Send } from 'lucide-react';
+import { SplitwiseExportWizard } from '@/components/SplitwiseExport/SplitwiseExportWizard';
 
 export interface SplitSummaryProps {
   personSplits: PersonSplit[];
@@ -37,6 +38,7 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
   const [isExportingAllPng, setIsExportingAllPng] = useState(false);
   const [isCopyingAll, setIsCopyingAll] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [isSplitwiseWizardOpen, setIsSplitwiseWizardOpen] = useState(false);
 
   const handlePrint = () => {
     window.print();
@@ -183,6 +185,12 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
 
   return (
     <div ref={exportRootRef} className="max-w-4xl mx-auto space-y-6">
+      <SplitwiseExportWizard
+        isOpen={isSplitwiseWizardOpen}
+        onClose={() => setIsSplitwiseWizardOpen(false)}
+        personSplits={personSplits}
+        totalBill={totalBill}
+      />
       {/* Header */}
       <Card>
         <CardHeader className="text-center">
@@ -365,6 +373,14 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
       <Card>
         <CardContent className="p-6" data-export-ignore="true">
           <div className="flex flex-wrap gap-3 justify-center">
+            <Button
+              onClick={() => setIsSplitwiseWizardOpen(true)}
+              variant="primary"
+              disabled={disabled}
+              leftIcon={<Send className="h-4 w-4" />}
+            >
+              Export to Splitwise
+            </Button>
             <Button
               onClick={onModifyAssignment}
               variant="secondary"

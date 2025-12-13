@@ -6,7 +6,7 @@ All endpoints are stateless - no server-side session storage.
 from fastapi import FastAPI
 from .core.middleware import setup_cors
 from .core.logging import setup_logging
-from .api.routes import health, receipt, split
+from .api.routes import health, receipt, split, splitwise
 import logging
 
 setup_logging()
@@ -27,6 +27,7 @@ setup_cors(app)
 app.include_router(health.router, prefix="/api")
 app.include_router(receipt.router, prefix="/api")
 app.include_router(split.router, prefix="/api")
+app.include_router(splitwise.router, prefix="/api")
 
 
 @app.on_event("startup")
