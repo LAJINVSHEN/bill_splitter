@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/UI/Card';
+import { Card, CardContent, CardTitle } from '@/components/UI/Card';
 import { Button } from '@/components/UI/Button';
 import { PersonSplit } from '@/types/split.types';
 import { formatCurrency } from '@/utils/formatters';

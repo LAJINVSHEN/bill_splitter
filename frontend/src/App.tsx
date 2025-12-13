@@ -157,9 +157,10 @@ const App: React.FC = () => {
     }
   };
   
-  const handleValidationCorrection = async (correctedData: any) => {
+  const handleValidationCorrection = async (correctedData: any, options?: { auto?: boolean }) => {
     try {
       billSplitter.actions.setLoading(true);
+      const isAuto = options?.auto;
 
       // Save corrected data to session immediately
       console.log('[App] Saving corrected receipt data to session');
@@ -184,10 +185,12 @@ const App: React.FC = () => {
 
         // Mark as validated in global state
         validationModal.actions.markAsValidated(processResponse.processed_data);
-        validationModal.actions.closeModal();
 
-        // Always go to assignment page (step 3) after validation
-        billSplitter.actions.goToStep(3);
+        if (!isAuto) {
+          validationModal.actions.closeModal();
+          // Always go to assignment page (step 3) after validation
+          billSplitter.actions.goToStep(3);
+        }
       } else {
         // No changes made, just proceed with existing data
         const processed = receiptOCR.state.processedData ?? validationModal.state.extractedData;
@@ -201,10 +204,11 @@ const App: React.FC = () => {
 
         // Mark as validated in global state
         validationModal.actions.markAsValidated(processed);
-        validationModal.actions.closeModal();
-
-        // Always go to assignment page (step 3) after validation
-        billSplitter.actions.goToStep(3);
+        if (!isAuto) {
+          validationModal.actions.closeModal();
+          // Always go to assignment page (step 3) after validation
+          billSplitter.actions.goToStep(3);
+        }
       }
     } catch (error) {
       console.error('[App] Error validating receipt:', error);
