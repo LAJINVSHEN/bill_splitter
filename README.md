@@ -1,5 +1,3 @@
-# This is fully vibe-coded and I do not take pride of it
-
 # Bill Splitter
 
 A modern web application for splitting bills with friends, family, or colleagues. Upload a receipt, assign items to people, and get instant calculations with tax and tip distribution.
