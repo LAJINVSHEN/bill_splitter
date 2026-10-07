@@ -732,15 +732,39 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
         }}
         style={style}
         className={[
-          'relative flex items-start gap-2 md:gap-3 p-2.5 md:p-3 pb-8 md:pb-6 pr-4 md:pr-5 bg-white border border-gray-200 rounded-md transition-shadow',
-          isDragging ? 'shadow-md ring-2 ring-primary-200' : 'hover:shadow-sm',
+          'px-0 py-2.5 transition-all',
+          isDragging ? 'rounded-lg bg-white px-2 py-2.5 shadow-md ring-2 ring-primary-200' : '',
         ].join(' ')}
       >
-        <div className="flex items-stretch">
+        <div className="mb-2 flex items-center justify-end md:hidden">
+          <div className="flex items-center gap-2">
+            <button
+              ref={setActivatorNodeRef}
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-slate-500 hover:border-slate-300 hover:bg-slate-200/70 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              aria-label="Reorder item"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => handleDeleteItem(index)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
+              type="button"
+              aria-label="Delete item"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-[28px_minmax(0,1fr)_44px_56px_56px_24px] md:gap-2">
           <button
             ref={setActivatorNodeRef}
             type="button"
-            className="flex h-full min-h-[44px] w-9 items-center justify-center rounded-md border border-gray-200 bg-gray-50 text-gray-400 hover:text-gray-700 hover:border-gray-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 cursor-grab active:cursor-grabbing"
+            className="hidden h-8 w-8 items-center justify-center self-center rounded-lg border border-slate-200 bg-slate-100 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:bg-slate-200/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 cursor-grab active:cursor-grabbing md:flex"
             style={{ touchAction: 'none' }}
             aria-label="Reorder item"
             {...attributes}
@@ -748,99 +772,120 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
           >
             <GripVertical className="h-4 w-4" />
           </button>
+
+          <div className="col-span-2 min-w-0 md:col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Item
+            </label>
+            <input
+              type="text"
+              value={item.name}
+              onChange={(e) => handleItemNameChange(index, e.target.value)}
+              placeholder="Item name"
+              onFocus={() => {
+                if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'name' };
+              }}
+              ref={(el) => {
+                if (item.__id) itemNameInputRefs.current[item.__id] = el;
+              }}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15"
+            />
+          </div>
+
+          <div className="col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Qty
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={getItemInputValue(item, 'quantity')}
+              onChange={(e) => handleItemNumericInputChange(id, 'quantity', e.target.value)}
+              onBlur={() => commitItemDraft(id)}
+              placeholder="Qty"
+              onFocus={(e) => {
+                e.target.select();
+                if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'quantity' };
+              }}
+              ref={(el) => {
+                if (item.__id) itemQtyInputRefs.current[item.__id] = el;
+              }}
+              className={[
+                'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15',
+                fieldErrors[`item-${id}-quantity`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+              ].join(' ')}
+              aria-invalid={Boolean(fieldErrors[`item-${id}-quantity`])}
+              aria-describedby={fieldErrors[`item-${id}-quantity`] ? `item-${id}-quantity-error` : undefined}
+            />
+          </div>
+
+          <div className="col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Unit
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={getItemInputValue(item, 'unit_price')}
+              onChange={(e) => handleItemNumericInputChange(id, 'unit_price', e.target.value)}
+              onBlur={() => commitItemDraft(id)}
+              placeholder="Unit"
+              onFocus={(e) => {
+                e.target.select();
+                if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'unit_price' };
+              }}
+              ref={(el) => {
+                if (item.__id) itemUnitInputRefs.current[item.__id] = el;
+              }}
+              className={[
+                'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
+                fieldErrors[`item-${id}-unit_price`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+              ].join(' ')}
+              aria-invalid={Boolean(fieldErrors[`item-${id}-unit_price`])}
+              aria-describedby={fieldErrors[`item-${id}-unit_price`] ? `item-${id}-unit_price-error` : undefined}
+            />
+          </div>
+
+          <div className="col-span-2 md:col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Line total
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={item.total_price}
+              readOnly
+              tabIndex={-1}
+              aria-readonly="true"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-2 text-right text-sm font-semibold text-slate-700 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+            />
+          </div>
+
+          <div className="hidden md:flex md:justify-end">
+            <button
+              onClick={() => handleDeleteItem(index)}
+              className="flex h-8 w-8 items-center justify-center self-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
+              type="button"
+              aria-label="Delete item"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-12 gap-2 flex-1 min-w-0">
-          <input
-            type="text"
-            value={item.name}
-            onChange={(e) => handleItemNameChange(index, e.target.value)}
-            placeholder="Item name"
-            onFocus={() => {
-              if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'name' };
-            }}
-            ref={(el) => {
-              if (item.__id) itemNameInputRefs.current[item.__id] = el;
-            }}
-            className="col-span-12 md:col-span-6 h-9 md:h-9 px-2 py-1.5 border rounded-md text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-          />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={getItemInputValue(item, 'quantity')}
-            onChange={(e) => handleItemNumericInputChange(id, 'quantity', e.target.value)}
-            onBlur={() => commitItemDraft(id)}
-            placeholder="Qty"
-            onFocus={(e) => {
-              e.target.select();
-              if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'quantity' };
-            }}
-            ref={(el) => {
-              if (item.__id) itemQtyInputRefs.current[item.__id] = el;
-            }}
-            className={[
-              'col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500',
-              fieldErrors[`item-${id}-quantity`] ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''
-            ].join(' ')}
-            aria-invalid={Boolean(fieldErrors[`item-${id}-quantity`])}
-            aria-describedby={fieldErrors[`item-${id}-quantity`] ? `item-${id}-quantity-error` : undefined}
-          />
-          <input
-            type="text"
-            inputMode="decimal"
-            value={getItemInputValue(item, 'unit_price')}
-            onChange={(e) => handleItemNumericInputChange(id, 'unit_price', e.target.value)}
-            onBlur={() => commitItemDraft(id)}
-            placeholder="Unit"
-            onFocus={(e) => {
-              e.target.select();
-              if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'unit_price' };
-            }}
-            ref={(el) => {
-              if (item.__id) itemUnitInputRefs.current[item.__id] = el;
-            }}
-            className={[
-              'col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
-              fieldErrors[`item-${id}-unit_price`] ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''
-            ].join(' ')}
-            aria-invalid={Boolean(fieldErrors[`item-${id}-unit_price`])}
-            aria-describedby={fieldErrors[`item-${id}-unit_price`] ? `item-${id}-unit_price-error` : undefined}
-          />
-          <input
-            type="number"
-            step="0.01"
-            value={item.total_price}
-            readOnly
-            tabIndex={-1}
-            aria-readonly="true"
-            className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1.5 border rounded-md text-sm text-right bg-gray-100 text-gray-700 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-          />
-        </div>
-
-        <div className="flex items-start pt-0.5">
-          <button
-            onClick={() => handleDeleteItem(index)}
-            className="p-2 text-red-500 hover:bg-red-50 rounded-md"
-            type="button"
-            aria-label="Delete item"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="absolute bottom-2 right-2 flex items-center justify-end">
+        <div className="relative mt-1 flex items-center justify-end">
           {isInsertMenuOpen && (
-            <div className="absolute bottom-10 right-0 z-30 w-36 rounded-md border border-gray-200 bg-white shadow-lg p-1.5">
+            <div className="absolute bottom-7 right-0 z-30 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
               <button
                 type="button"
-                className="w-full text-left px-2.5 py-1.5 text-xs font-medium text-gray-700 rounded hover:bg-primary-50"
+                className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-primary-50"
                 onClick={() => onInsert(index, 'above')}
               >
                 Insert above
               </button>
               <button
                 type="button"
-                className="w-full text-left px-2.5 py-1.5 text-xs font-medium text-gray-700 rounded hover:bg-primary-50"
+                className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-primary-50"
                 onClick={() => onInsert(index, 'below')}
               >
                 Insert below
@@ -850,10 +895,10 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
           <button
             type="button"
             onClick={() => onToggleInsertMenu(id)}
-            className="relative z-10 h-8 w-8 flex items-center justify-center rounded-full border border-primary-200 bg-primary-50 text-primary-600 hover:bg-primary-100 shadow-sm"
+            className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
             aria-label="Add item near this row"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3 w-3" />
           </button>
         </div>
       </div>
@@ -1130,20 +1175,26 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
           </div>
 
           {/* Right Panel - Editable Fields */}
-          <div ref={editorScrollRef} className="w-full md:w-1/2 min-h-0 p-4 md:p-5 overflow-y-auto bg-gradient-to-b from-gray-50 via-white to-white flex-[3] md:flex-1">
+          <div ref={editorScrollRef} className="w-full md:w-1/2 min-h-0 overflow-y-auto bg-slate-50 p-4 md:p-5 flex-[3] md:flex-1">
             {/* Items Section */}
-            <div className="mb-7">
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <h3 className="font-semibold text-gray-900">Items</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">Tap the + on any item to insert a new one above or below.</p>
+            <div className="mb-7 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-slate-900 px-4 py-3 md:px-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Items</h3>
+                  </div>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">{items.length}</span>
                 </div>
               </div>
-              <div className="hidden md:grid grid-cols-12 gap-2 px-2 py-2 mb-2 text-[10px] uppercase tracking-wide text-gray-500 bg-white border border-gray-200 rounded-md">
-                <div className="col-span-6">Item</div>
-                <div className="col-span-2 text-right">Qty</div>
-                <div className="col-span-2 text-right">Unit</div>
-                <div className="col-span-2 text-right">Total</div>
+              <div className="hidden border-b border-slate-200 bg-slate-100 px-4 py-2.5 md:block">
+                <div className="grid grid-cols-[28px_minmax(0,1fr)_44px_56px_56px_24px] items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <div className="text-center">Move</div>
+                  <div>Item</div>
+                  <div className="text-right">Qty</div>
+                  <div className="text-right">Unit</div>
+                  <div className="text-right">Total</div>
+                  <div className="text-center">X</div>
+                </div>
               </div>
               <DndContext
                 sensors={sensors}
@@ -1156,7 +1207,7 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                   items={items.map((item, index) => item.__id ?? `missing-${index}`)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="space-y-2">
+                  <div className="divide-y divide-slate-200 px-3 md:px-4">
                     {items.map((item, index) => {
                       const rowId = item.__id ?? `missing-${index}`;
                       return (
@@ -1174,14 +1225,14 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                 </SortableContext>
 
                 {items.length === 0 && (
-                  <div className="mt-3 rounded-md border border-dashed border-gray-300 bg-white p-3 text-center text-sm text-gray-600">
-                    <p className="mb-2">No items yet. Add your first item to start.</p>
+                  <div className="mx-3 mb-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-600 md:mx-4 md:mb-4">
+                    <p className="mb-3 text-sm font-medium text-slate-700">No items yet. Start with the first line item.</p>
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={handleAddItemToEnd}
                       type="button"
-                      className="text-xs md:text-sm px-2.5"
+                      className="rounded-full border-slate-300 px-4 text-xs text-slate-700 hover:border-primary-500 hover:text-primary-700"
                     >
                       <Plus className="h-4 w-4 mr-1" /> Add first item
                     </Button>
@@ -1190,10 +1241,10 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
 
                 <DragOverlay>
                   {activeDragItem ? (
-                    <div className="bg-white border border-gray-200 rounded-md p-2 shadow-xl">
+                    <div className="rounded-2xl border border-primary-200 bg-white px-4 py-3 shadow-xl">
                       <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-gray-400" />
-                        <div className="text-sm font-medium text-gray-900 truncate max-w-[16rem]">
+                        <GripVertical className="h-4 w-4 text-primary-500" />
+                        <div className="text-sm font-medium text-slate-900 truncate max-w-[16rem]">
                           {activeDragItem.name || 'New item'}
                         </div>
                       </div>
@@ -1201,26 +1252,50 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                   ) : null}
                 </DragOverlay>
               </DndContext>
-            </div>
 
-            {/* Taxes Section */}
-            <div className="mb-7 pb-7 border-b">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <h3 className="font-semibold text-gray-900">Taxes & Charges</h3>
-                  <p className="text-xs text-gray-500">Add percentage or flat amounts. We will keep totals in sync.</p>
-                </div>
+              <div className="border-t border-slate-200 bg-slate-50 px-3 py-3 md:px-4">
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handleAddTax}
+                  onClick={handleAddItemToEnd}
                   type="button"
-                  className="text-xs md:text-sm px-2.5 md:px-3"
+                  className="w-full rounded-lg border-slate-300 py-2 text-sm text-slate-700 hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
                 >
-                  <Plus className="h-4 w-4 mr-1" /> Add Tax/Charge
+                  <Plus className="mr-1 h-4 w-4" /> Add item to end
                 </Button>
               </div>
-              <div className="space-y-2">
+            </div>
+
+            {/* Taxes Section */}
+            <div className="mb-7 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-slate-800 px-4 py-3 md:px-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Taxes & Charges</h3>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">{taxes.length}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddTax}
+                      type="button"
+                      className="rounded-full border-white/20 bg-white/10 px-3 text-xs text-white hover:bg-white/15 hover:text-white"
+                    >
+                      <Plus className="mr-1 h-4 w-4" /> Add
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div className="hidden border-b border-slate-200 bg-slate-100 px-4 py-2.5 md:block">
+                <div className="grid grid-cols-[minmax(0,1fr)_72px_72px_24px] items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <div>Name</div>
+                  <div className="text-right">Rate</div>
+                  <div className="text-right">Amount</div>
+                  <div className="text-center">X</div>
+                </div>
+              </div>
+              <div className="divide-y divide-slate-200 px-3 md:px-4">
                 {taxes.map((tax, index) => {
                   const calculatedAmount = getTaxAmount(tax, subtotal);
                   const percentDisplay = getTaxInputValue(index, 'percent', tax.percent || 0);
@@ -1230,93 +1305,133 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                     <div
                       key={index}
                       ref={(el) => { taxRowRefs.current[index] = el; }}
-                      className="grid grid-cols-12 gap-2 md:gap-3 items-center rounded-lg border border-gray-200 bg-white/80 p-3 shadow-sm"
+                      className="px-0 py-2.5"
                     >
-                      <input
-                        type="text"
-                        value={tax.name}
-                        onChange={(e) => handleTaxNameChange(index, e.target.value)}
-                        onFocus={() => { activeFieldRef.current = { type: 'tax', id: String(index), field: 'name' }; }}
-                        placeholder="Tax/Charge name"
-                        ref={(el) => { taxNameInputRefs.current[index] = el; }}
-                        className="col-span-5 md:col-span-6 h-10 px-3 py-2 border rounded-md text-xs md:text-sm bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 min-w-0"
-                        aria-invalid={Boolean(fieldErrors[`tax-${index}-name`])}
-                        aria-describedby={fieldErrors[`tax-${index}-name`] ? `tax-${index}-name-error` : undefined}
-                      />
-                      <div className="col-span-3 md:col-span-3">
-                        <div className="relative">
-                          <input
-                            type="text"
-                            inputMode="decimal"
-                            value={percentDisplay}
-                        onChange={(e) => handleTaxPercentInputChange(index, e.target.value)}
-                        onBlur={() => commitTaxDraft(index, 'percent')}
-                        placeholder="%"
-                        onFocus={(e) => {
-                          e.target.select();
-                          activeFieldRef.current = { type: 'tax', id: String(index), field: 'percent' };
-                        }}
-                        ref={(el) => { taxPercentInputRefs.current[index] = el; }}
-                        className={[
-                          'w-full h-10 px-3 py-2 pr-9 border rounded-md text-xs md:text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
-                          fieldErrors[`tax-${index}-percent`] ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''
-                        ].join(' ')}
-                        aria-invalid={Boolean(fieldErrors[`tax-${index}-percent`])}
-                            aria-describedby={fieldErrors[`tax-${index}-percent`] ? `tax-${index}-percent-error` : undefined}
-                            />
-                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] md:text-xs text-gray-500">%</span>
-                        </div>
-                      </div>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={amountDisplay}
-                        onChange={(e) => handleTaxAmountInputChange(index, e.target.value)}
-                        onBlur={() => commitTaxDraft(index, 'amount')}
-                        placeholder="Amount"
-                        onFocus={(e) => {
-                          e.target.select();
-                          activeFieldRef.current = { type: 'tax', id: String(index), field: 'amount' };
-                        }}
-                        ref={(el) => { taxAmountInputRefs.current[index] = el; }}
-                        className={[
-                          'col-span-3 md:col-span-3 h-10 px-3 py-2 border rounded-md text-xs md:text-sm text-right bg-gray-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
-                          fieldErrors[`tax-${index}-amount`] ? 'border-red-400 focus:ring-red-400 focus:border-red-400' : ''
-                        ].join(' ')}
-                        aria-invalid={Boolean(fieldErrors[`tax-${index}-amount`])}
-                        aria-describedby={fieldErrors[`tax-${index}-amount`] ? `tax-${index}-amount-error` : undefined}
-                      />
-                      <div className="col-span-1 flex justify-end h-full">
+                      <div className="mb-2 flex items-center justify-end md:hidden">
                         <button
                           onClick={() => handleDeleteTax(index)}
-                          className="p-2 text-red-500 hover:bg-red-50 rounded-md"
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
                           type="button"
                           aria-label="Delete tax or charge"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
+
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1fr)_72px_72px_24px] md:items-center md:gap-2">
+                        <div className="col-span-2 min-w-0 md:col-span-1">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+                            Name
+                          </label>
+                          <input
+                            type="text"
+                            value={tax.name}
+                            onChange={(e) => handleTaxNameChange(index, e.target.value)}
+                            onFocus={() => { activeFieldRef.current = { type: 'tax', id: String(index), field: 'name' }; }}
+                            placeholder="Tax/Charge name"
+                            ref={(el) => { taxNameInputRefs.current[index] = el; }}
+                            className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 min-w-0"
+                            aria-invalid={Boolean(fieldErrors[`tax-${index}-name`])}
+                            aria-describedby={fieldErrors[`tax-${index}-name`] ? `tax-${index}-name-error` : undefined}
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+                            Rate
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={percentDisplay}
+                              onChange={(e) => handleTaxPercentInputChange(index, e.target.value)}
+                              onBlur={() => commitTaxDraft(index, 'percent')}
+                              placeholder="%"
+                              onFocus={(e) => {
+                                e.target.select();
+                                activeFieldRef.current = { type: 'tax', id: String(index), field: 'percent' };
+                              }}
+                              ref={(el) => { taxPercentInputRefs.current[index] = el; }}
+                              className={[
+                                'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 pr-8 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
+                                fieldErrors[`tax-${index}-percent`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+                              ].join(' ')}
+                              aria-invalid={Boolean(fieldErrors[`tax-${index}-percent`])}
+                              aria-describedby={fieldErrors[`tax-${index}-percent`] ? `tax-${index}-percent-error` : undefined}
+                            />
+                            <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[11px] text-slate-500">%</span>
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+                            Amount
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={amountDisplay}
+                            onChange={(e) => handleTaxAmountInputChange(index, e.target.value)}
+                            onBlur={() => commitTaxDraft(index, 'amount')}
+                            placeholder="Amount"
+                            onFocus={(e) => {
+                              e.target.select();
+                              activeFieldRef.current = { type: 'tax', id: String(index), field: 'amount' };
+                            }}
+                            ref={(el) => { taxAmountInputRefs.current[index] = el; }}
+                            className={[
+                              'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
+                              fieldErrors[`tax-${index}-amount`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+                            ].join(' ')}
+                            aria-invalid={Boolean(fieldErrors[`tax-${index}-amount`])}
+                            aria-describedby={fieldErrors[`tax-${index}-amount`] ? `tax-${index}-amount-error` : undefined}
+                          />
+                        </div>
+                        <div className="hidden md:flex md:justify-end">
+                          <button
+                            onClick={() => handleDeleteTax(index)}
+                            className="flex h-8 w-8 items-center justify-center self-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
+                            type="button"
+                            aria-label="Delete tax or charge"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
+                {taxes.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-600">
+                    <p className="mb-3 text-sm font-medium text-slate-700">No tax or charge lines yet.</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddTax}
+                      type="button"
+                      className="rounded-full border-slate-300 px-4 text-xs text-slate-700 hover:border-primary-500 hover:text-primary-700"
+                    >
+                      <Plus className="mr-1 h-4 w-4" /> Add tax or charge
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Totals Section */}
-            <div className="space-y-3">
-              <h3 className="font-semibold text-gray-900">Totals</h3>
-              <div className="rounded-xl border border-primary-100 bg-primary-50/80 p-4 space-y-2">
-                <div className="flex justify-between text-sm text-gray-700">
+            <div className="rounded-[24px] border border-slate-200 bg-slate-900 p-4 text-white shadow-sm md:p-5">
+              <h3 className="mb-4 text-lg font-semibold text-white">Totals</h3>
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm text-slate-300">
                   <span>Subtotal</span>
-                  <span className="font-medium text-gray-900">{subtotal.toFixed(2)}</span>
+                  <span className="font-medium text-white">{subtotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between text-sm text-gray-700">
+                <div className="flex justify-between text-sm text-slate-300">
                   <span>Taxes & charges</span>
-                  <span className="font-medium text-gray-900">{taxesAndChargesTotal.toFixed(2)}</span>
+                  <span className="font-medium text-white">{taxesAndChargesTotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between items-center pt-2 border-t border-primary-100">
-                  <span className="text-sm font-semibold text-primary-900">Grand total</span>
-                  <div className="px-3 py-2 rounded-md text-sm font-semibold text-primary-900 bg-white shadow-inner min-w-[6rem] text-right">
+                <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                  <span className="text-sm font-semibold text-white">Grand total</span>
+                  <div className="min-w-[7rem] rounded-2xl bg-white px-4 py-2 text-right text-base font-semibold text-slate-950 shadow-inner">
                     {total.toFixed(2)}
                   </div>
                 </div>
