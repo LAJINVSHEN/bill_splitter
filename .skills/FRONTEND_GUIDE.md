@@ -25,7 +25,7 @@ The old `frontend/` directory is dead code. Never import from it, but read it fo
 - Utilities: `display` (page titles), `display-sm` (section titles), `hero-num` (big amounts), `num` (tabular numbers), `pb-safe`, `animate-even`.
 - Radii: `rounded-[var(--radius-control)]` (6 px) for controls, `--radius-panel` (10 px) only for the share stub and the admin side panel.
 - Layout vars: `--app-gutter`, `--app-bottom-gap` (clearance for the phone tab bar).
-- **Grep gate** (must find nothing in `web/src` outside `styles/index.css`): `grep -rEn "#[0-9a-fA-F]{3,6}\b|gray-|slate-|blue-|green-|red-" web/src --include=*.tsx`. The only colour literals allowed outside are the `hsl(...)` in `Avatar`.
+- **Grep gate** (must find nothing in `web/src` outside `styles/index.css`): `grep -rEn "#[0-9a-fA-F]{3,6}\b|\b(gray|slate|blue|green|red)-" web/src --include=*.tsx` (the `\b` keeps `-translate-y` and `shared-` from tripping it). The only colour literals allowed outside are the `hsl(...)` in `Avatar`.
 
 ## 3. Components (`web/src/components`). Use them; don't fork them
 
