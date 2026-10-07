@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>even · Home (desktop)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1E44D8}a:hover{color:#1634A8}
+</style>
+</helmet>
+<div style="min-height: 900px; box-sizing: border-box; background: #FFFFFF; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; color: #0B0F19; display: flex; flex-wrap: wrap">
+
+  <aside style="flex: 1 1 248px; max-width: 100%; box-sizing: border-box; padding: 26px 20px; border-right: 1px solid #E5E8EE; display: flex; flex-direction: column; gap: 26px">
+    <a href="#" aria-label="even, home" style="display: flex; align-items: center; gap: 6px; color: #0B0F19; text-decoration: none; padding: 0 10px">
+      <span style="font-size: 28px; font-weight: 700; font-stretch: 118%; letter-spacing: -0.045em">even</span>
+      <span aria-hidden="true" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px"><span style="width: 15px; height: 3.5px; border-radius: 2px; background: #1E44D8"></span><span style="width: 15px; height: 3.5px; border-radius: 2px; background: #1E44D8"></span></span>
+    </a>
+    <a href="#" style="height: 48px; border-radius: 6px; background: #1E44D8; color: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 700; text-decoration: none">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      New bill
+    </a>
+    <nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="5">
+        <a href="#" aria-current="{{n.current}}" style="height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 6px; text-decoration: none; font-size: 16px; font-weight: {{n.weight}}; color: {{n.ink}}; background: {{n.bg}}">
+          <span aria-hidden="true" style="width: 14px; display: flex; flex-direction: column; gap: 3px; opacity: {{n.mark}}"><span style="height: 2.5px; background: #1E44D8"></span><span style="height: 2.5px; background: #1E44D8"></span></span>
+          {{n.label}}
+        </a>
+      </sc-for>
+    </nav>
+    <div style="margin-top: auto; padding: 0 10px; display: flex; flex-direction: column; gap: 8px">
+      <div style="display: flex; justify-content: space-between; font-size: 14px; font-weight: 600"><span>Scans this month</span><span style="font-variant-numeric: tabular-nums">12 / 30</span></div>
+      <div role="meter" aria-label="Scans used" aria-valuemin="0" aria-valuemax="30" aria-valuenow="12" style="height: 5px; border-radius: 3px; background: #E5E8EE; overflow: hidden"><span style="display: block; width: 40%; height: 100%; background: #1E44D8"></span></div>
+    </div>
+  </aside>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 40px clamp(20px, 3vw, 56px) 56px">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 48px">
+
+      <section aria-labelledby="d-owed">
+        <h1 id="d-owed" style="margin: 0; font-size: 16px; font-weight: 600; color: #4A5163">Owed to you</h1>
+        <p style="margin: 0; display: flex; align-items: flex-start; gap: 8px; font-variant-numeric: tabular-nums">
+          <span style="font-size: 22px; font-weight: 600; font-stretch: 125%; margin-top: 14px">SGD</span>
+          <span style="font-size: 84px; line-height: 1.05; font-weight: 600; font-stretch: 125%; letter-spacing: -0.05em">186.40</span>
+        </p>
+        <p style="margin: 4px 0 0; font-size: 15px; color: #4A5163">Plus <span style="font-weight: 700; color: #9A4A00; font-variant-numeric: tabular-nums">¥ 6,300</span> without a rate · <a href="#" style="font-weight: 600; text-decoration: none">Add JPY rate</a></p>
+        <ul style="list-style: none; margin: 20px 0 0; padding: 0; border-top: 1.5px solid #0B0F19">
+          <sc-for list="{{debtors}}" as="d" hint-placeholder-count="4">
+            <li style="display: grid; grid-template-columns: 30px 120px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 48px; border-bottom: 1px solid #E5E8EE">
+              <span aria-hidden="true" style="width: 28px; height: 28px; border-radius: 999px; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: {{d.bg}}">{{d.initial}}</span>
+              <span style="font-size: 16px; font-weight: 600">{{d.name}}</span>
+              <span style="font-size: 15px; color: #4A5163; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.bills}}</span>
+              <span style="font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums">{{d.amount}}</span>
+            </li>
+          </sc-for>
+        </ul>
+      </section>
+
+      <div style="display: flex; flex-direction: column; gap: 32px">
+        <section aria-labelledby="d-start">
+          <h2 id="d-start" style="margin: 0 0 10px; font-size: 20px; font-weight: 700; font-stretch: 115%; letter-spacing: -0.02em">Start a bill</h2>
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+            <a href="#" style="min-height: 96px; border-radius: 6px; background: #1E44D8; color: #FFFFFF; padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; text-decoration: none">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"></path><path d="M9 9h6M9 12h6M9 15h3.5"></path></svg>
+              <span style="font-size: 16px; font-weight: 700">Scan a receipt</span>
+            </a>
+            <a href="#" style="min-height: 96px; border-radius: 6px; border: 1.5px solid #0B0F19; color: #0B0F19; padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; text-decoration: none">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1E44D8" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3z"></path><path d="M14 7l3 3"></path></svg>
+              <span style="font-size: 16px; font-weight: 600">Type items</span>
+            </a>
+            <a href="#" style="min-height: 96px; border-radius: 6px; border: 1.5px solid #0B0F19; color: #0B0F19; padding: 14px; box-sizing: border-box; display: flex; flex-direction: column; justify-content: space-between; text-decoration: none">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#1E44D8" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="6" r="1.4" fill="#1E44D8"></circle><path d="M5 12h14"></path><circle cx="12" cy="18" r="1.4" fill="#1E44D8"></circle></svg>
+              <span style="font-size: 16px; font-weight: 600">Split a total</span>
+            </a>
+          </div>
+        </section>
+        <section aria-labelledby="d-drafts">
+          <h2 id="d-drafts" style="margin: 0 0 6px; font-size: 20px; font-weight: 700; font-stretch: 115%; letter-spacing: -0.02em">In progress</h2>
+          <ul style="list-style: none; margin: 0; padding: 0; border-top: 1.5px solid #0B0F19">
+            <li style="min-height: 56px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #E5E8EE">
+              <span style="flex: 1; font-size: 16px; font-weight: 600">Ramen Kazu</span>
+              <span style="font-size: 15px; font-weight: 600; color: #9A4A00">2 prices to check</span>
+              <a href="#" style="width: 80px; text-align: right; font-size: 15px; font-weight: 700; text-decoration: none">Resume</a>
+            </li>
+            <li style="min-height: 56px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #E5E8EE">
+              <span style="flex: 1; font-size: 16px; font-weight: 600">Hawker dinner</span>
+              <span style="font-size: 15px; font-weight: 600; color: #4A5163">Reading receipt…</span>
+              <a href="#" style="width: 80px; text-align: right; font-size: 15px; font-weight: 700; text-decoration: none">Open</a>
+            </li>
+          </ul>
+        </section>
+      </div>
+    </div>
+
+    <section aria-labelledby="d-recent" style="margin-top: 48px">
+      <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px">
+        <h2 id="d-recent" style="margin: 0; font-size: 20px; font-weight: 700; font-stretch: 115%; letter-spacing: -0.02em">Recent bills</h2>
+        <a href="#" style="font-size: 15px; font-weight: 600; text-decoration: none">All bills</a>
+      </div>
+      <div style="overflow-x: auto">
+        <table style="width: 100%; min-width: 640px; border-collapse: collapse; font-size: 16px">
+          <thead>
+            <tr style="border-top: 1.5px solid #0B0F19; border-bottom: 1px solid #E5E8EE; text-align: left; font-size: 14px; color: #4A5163">
+              <th scope="col" style="padding: 10px 0; font-weight: 600; width: 90px">Date</th>
+              <th scope="col" style="padding: 10px 0; font-weight: 600">Bill</th>
+              <th scope="col" style="padding: 10px 0; font-weight: 600">People</th>
+              <th scope="col" style="padding: 10px 0; font-weight: 600; text-align: right">Total</th>
+              <th scope="col" style="padding: 10px 0; font-weight: 600; text-align: right; width: 140px">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{bills}}" as="b" hint-placeholder-count="5">
+              <tr style="border-bottom: 1px solid #E5E8EE">
+                <td style="padding: 14px 0; color: #4A5163; font-weight: 600; font-variant-numeric: tabular-nums">{{b.date}}</td>
+                <td style="padding: 14px 0; font-weight: 600">{{b.merchant}}</td>
+                <td style="padding: 14px 0; color: #4A5163">{{b.people}}</td>
+                <td style="padding: 14px 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums">{{b.total}}</td>
+                <td style="padding: 14px 0; text-align: right; font-weight: 700; color: {{b.ink}}">{{b.status}}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const nav = (label, active) => ({ label, current: active ? 'page' : 'false', weight: active ? 700 : 600, ink: active ? '#0B0F19' : '#4A5163', bg: active ? '#F5F7FA' : 'transparent', mark: active ? 1 : 0 });
+    return {
+      nav: [nav('Home', true), nav('Bills'), nav('People'), nav('Account'), nav('Admin')],
+      debtors: [
+        { initial: 'W', bg: '#CDEFE0', name: 'Wei Jie', bills: 'Bar Lisboa, Hawker dinner', amount: '61.10' },
+        { initial: 'A', bg: '#FFDCC7', name: 'Aina', bills: 'Bar Lisboa', amount: '42.30' },
+        { initial: 'P', bg: '#E3DBFF', name: 'Priya', bills: 'Bar Lisboa', amount: '41.50' },
+        { initial: 'D', bg: '#F3E6C4', name: 'Daniel', bills: 'Bar Lisboa', amount: '41.50' }
+      ],
+      bills: [
+        { date: '04 Oct', merchant: 'Ramen Kazu, Tokyo', people: 'You, Aina, Wei Jie +2', total: '¥ 14,820', status: '3 owe', ink: '#1E44D8' },
+        { date: '04 Oct', merchant: 'Bar Lisboa', people: 'You, Wei Jie, Aina +2', total: 'SGD 312.80', status: '4 owe', ink: '#1E44D8' },
+        { date: '02 Oct', merchant: 'Kopitiam Lima', people: 'You, Priya, Daniel', total: 'SGD 48.60', status: 'Even', ink: '#4A5163' },
+        { date: '28 Sep', merchant: 'Pasar malam, JB', people: 'You, Hafiz, Arjun +1', total: 'MYR 64.00', status: 'Even', ink: '#4A5163' },
+        { date: '21 Sep', merchant: 'Grocery run', people: 'You, Mei Ling', total: 'SGD 87.35', status: 'Even', ink: '#4A5163' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

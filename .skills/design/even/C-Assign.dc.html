@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>C · Ledger — Assign</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1E44D8}a:hover{color:#1634A8}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #FFFFFF; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; color: #0B0F19">
+
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 0 8px">
+    <button style="height: 44px; padding: 0 12px; display: flex; align-items: center; gap: 4px; border: 0; background: transparent; color: #0B0F19; font: 600 15px 'Archivo', system-ui, sans-serif; cursor: pointer">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+      Review
+    </button>
+    <span style="font-size: 14px; font-weight: 600; color: #4A5163">Step 4 of 5</span>
+  </header>
+
+  <div style="padding: 8px 20px 0">
+    <h1 style="margin: 0; font-size: 34px; line-height: 1.05; font-weight: 650; font-stretch: 122%; letter-spacing: -0.04em">Who had what?</h1>
+    <p style="margin: 6px 0 0; font-size: 15px; color: #4A5163">Ramen Kazu · <span style="font-variant-numeric: tabular-nums">RM 143.14</span></p>
+  </div>
+
+  <div role="group" aria-label="Assigning for" style="display: flex; gap: 18px; padding: 16px 20px 0; border-bottom: 1px solid #E5E8EE; overflow: hidden">
+    <sc-for list="{{people}}" as="p" hint-placeholder-count="5">
+      <button aria-pressed="{{p.pressed}}" style="flex: none; height: 44px; display: flex; align-items: center; gap: 5px; padding: 0; border: 0; background: transparent; cursor: pointer; font: 600 16px 'Archivo', system-ui, sans-serif; color: {{p.ink}}; box-shadow: {{p.underline}}">
+        {{p.name}}
+        <span style="font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; color: {{p.countInk}}">{{p.count}}</span>
+      </button>
+    </sc-for>
+  </div>
+
+  <ul style="list-style: none; margin: 0; padding: 0 20px">
+    <sc-for list="{{items}}" as="it" hint-placeholder-count="8">
+      <li style="border-bottom: 1px solid #E5E8EE">
+        <button aria-pressed="{{it.mine}}" style="width: 100%; min-height: 54px; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 60px; align-items: center; gap: 12px; padding: 0; border: 0; background: transparent; text-align: left; font: inherit; color: inherit; cursor: pointer">
+          <span aria-hidden="true" style="width: 22px; height: 22px; border-radius: 4px; box-sizing: border-box; display: grid; place-items: center; background: {{it.boxBg}}; border: {{it.boxBorder}}">
+            <sc-if value="{{it.mine}}" hint-placeholder-val="{{true}}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>
+            </sc-if>
+          </span>
+          <span style="font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{it.name}}<span style="color: #4A5163"> {{it.qty}}</span></span>
+          <span style="font-size: 13px; font-weight: 700; letter-spacing: 0.06em; color: {{it.whoInk}}">{{it.who}}</span>
+          <span style="text-align: right; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums">{{it.price}}</span>
+        </button>
+      </li>
+    </sc-for>
+  </ul>
+
+  <footer style="position: absolute; left: 0; right: 0; bottom: 0; box-sizing: border-box; padding: 12px 20px 24px; background: #FFFFFF; border-top: 1.5px solid #0B0F19; display: flex; align-items: center; gap: 14px">
+    <div style="flex: 1; display: flex; flex-direction: column">
+      <span style="font-size: 14px; font-weight: 600; color: #4A5163">Aina so far · <span style="color: #9A4A00; font-weight: 700">2 unassigned</span></span>
+      <span style="font-size: 24px; font-weight: 600; font-stretch: 120%; letter-spacing: -0.03em; font-variant-numeric: tabular-nums">RM 43.12</span>
+    </div>
+    <a href="#" style="height: 52px; padding: 0 22px; border-radius: 6px; background: #1E44D8; color: #FFFFFF; display: flex; align-items: center; font-size: 16px; font-weight: 700; text-decoration: none">See totals</a>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const person = (name, count, active) => ({
+      name, count,
+      pressed: active ? 'true' : 'false',
+      ink: active ? '#0B0F19' : '#4A5163',
+      countInk: active ? '#1E44D8' : '#4A5163',
+      underline: active ? 'inset 0 -3px 0 #1E44D8' : 'none'
+    });
+    const item = (name, qty, price, who, mine) => ({
+      name, qty, price, mine,
+      who: who || 'NOBODY',
+      whoInk: who ? '#4A5163' : '#9A4A00',
+      boxBg: mine ? '#1E44D8' : '#FFFFFF',
+      boxBorder: mine ? '0' : '1.5px solid #0B0F19'
+    });
+    return {
+      people: [
+        person('Aina', '4', true),
+        person('Wei Jie', '3', false),
+        person('Priya', '3', false),
+        person('Daniel', '2', false),
+        person('Me', '1', false)
+      ],
+      items: [
+        item('Tonkotsu ramen', '×2', '36.00', 'A W', true),
+        item('Shoyu ramen', '', '17.50', 'P', false),
+        item('Gyoza, 6 pcs', '', '14.00', 'A P D', true),
+        item('Karaage', '', '16.00', '', false),
+        item('Edamame', '', '8.00', 'ALL', true),
+        item('Matcha latte', '', '12.90', 'A', true),
+        item('Iced lemon tea', '×3', '15.00', '', false),
+        item('Ajitama', '', '4.00', 'W', false)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

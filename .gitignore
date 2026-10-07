@@ -241,3 +241,6 @@ uploads/
 splitwise_package_for_ref/
 # Local-only data (owner receipts, scratch)
 .local/
+
+# Playwright MCP scratch output
+.playwright-mcp/
