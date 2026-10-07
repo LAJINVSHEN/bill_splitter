@@ -6,7 +6,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from app.schemas.common import CleanStr, Currency, InputModel, OutputModel
+from app.schemas.common import CleanStr, Currency, DecimalStr, InputModel, OutputModel, Rate
 
 
 class MeOut(OutputModel):
@@ -68,6 +68,23 @@ class OutstandingBill(OutputModel):
 
 
 class SummaryOut(OutputModel):
-    currencies: list[CurrencyBalance]
+    home: CurrencyBalance  # only bills whose effective currency is the user's default currency
+    currencies: list[CurrencyBalance]  # every effective currency, never converted into each other
     people: list[PersonBalance]
     bills: list[OutstandingBill]
+
+
+class FxRateIn(InputModel):
+    rate: Rate  # 1 base = rate quote
+
+
+class FxRateOut(OutputModel):
+    base: str
+    quote: str
+    rate: DecimalStr
+    derived: bool  # true when computed as 1 / (stored quote→base rate)
+    updated_at: datetime
+
+
+class FxRateList(OutputModel):
+    items: list[FxRateOut]

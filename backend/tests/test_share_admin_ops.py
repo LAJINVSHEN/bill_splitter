@@ -97,7 +97,7 @@ async def test_admin_creates_password_user_who_can_then_log_in(ctx: Ctx) -> None
     assert r.status_code == 201, r.text
     out = r.json()
     user = out["user"]
-    assert user["username"] == "charlie" and user["email"] == "charlie@users.billsplitter.app"
+    assert user["username"] == "charlie" and user["email"] == "charlie@users.even.app"
     assert user["must_change_password"] is True and user["monthly_scan_quota"] == 12
     pw = out["temp_password"]
     assert len(pw) == 16 and any(c.isupper() for c in pw) and any(c.isdigit() for c in pw)
@@ -336,7 +336,7 @@ async def test_every_public_table_has_rls_and_no_api_role_grants(ctx: Ctx) -> No
                has_table_privilege('anon', c.oid, 'SELECT'), has_table_privilege('authenticated', c.oid, 'INSERT')
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 1""")
-    assert len(rows) == 14
+    assert len(rows) == 15
     assert all(rls for _, rls, _, _ in rows), rows
     assert not any(anon or auth for _, _, anon, auth in rows), rows
     policies = await ctx.sql("SELECT count(*) FROM pg_policies WHERE schemaname = 'public'")

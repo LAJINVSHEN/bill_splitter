@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.config import DEFAULT_LLM_PRICES
+from app.core.currencies import exponent
 from app.core.ocr_text import join_pages, split_pages
 from app.core.periods import current_month_bounds, month_bounds, month_key
 from app.core.pricing import Price, cost_micros, estimate_cost_micros, resolve_price
@@ -86,7 +87,7 @@ def test_golden_validation_vector(case: dict) -> None:
     r = validate_receipt([item(x["name"], x["quantity"], x["unit_price_cents"], x["total_price_cents"])
                           for x in i["items"]],
                          [ReceiptCharge(c["name"], c["amount_cents"]) for c in i["charges"]],
-                         i["grand_total_cents"], i["subtotal_cents"])
+                         i["grand_total_cents"], i["subtotal_cents"], exponent(i.get("currency", "SGD")))
     e = case["expected"]
     assert r.ok == e["ok"]
     assert r.tax_scenario == e["tax_scenario"]

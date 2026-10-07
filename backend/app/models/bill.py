@@ -50,6 +50,9 @@ class Bill(Base):
     subtotal_cents: Mapped[int | None] = mapped_column(BigInteger)
     grand_total_cents: Mapped[int | None] = mapped_column(BigInteger)
     tax_scenario: Mapped[str | None] = mapped_column(Text)
+    # Optional conversion snapshot: 1 unit of ``currency`` = ``fx_rate`` units of ``settle_currency``.
+    settle_currency: Mapped[str | None] = mapped_column(String(3))
+    fx_rate: Mapped[Decimal | None] = mapped_column(Numeric)
     receipt_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = created_at_col()
@@ -71,6 +74,10 @@ class Bill(Base):
         CheckConstraint(f"tax_scenario IS NULL OR tax_scenario IN {TAX_SCENARIOS}", name="tax_scenario"),
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency"),
         CheckConstraint("grand_total_cents IS NULL OR grand_total_cents >= 0", name="grand_total_nonneg"),
+        CheckConstraint("(settle_currency IS NULL) = (fx_rate IS NULL)", name="fx_pair"),
+        CheckConstraint("settle_currency IS NULL OR (settle_currency ~ '^[A-Z]{3}$' AND settle_currency <> currency)",
+                        name="settle_currency"),
+        CheckConstraint("fx_rate IS NULL OR fx_rate > 0", name="fx_rate_positive"),
         Index("ix_bills_owner_id_created_at", "owner_id", "created_at"),
     )
 

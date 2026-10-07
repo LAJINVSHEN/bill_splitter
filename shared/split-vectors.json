@@ -14,7 +14,11 @@
     "bill": "items_cents[p] = sum of p's item shares; totals = allocate(grand_total, items_cents in participant order). Unassigned items are excluded. Shares for non-participants are ignored (issue).",
     "quick_split": "a single synthetic item whose total is the grand total, mode equal or weighted",
     "is_complete": "participants exist and there are no issues (unassigned items are issues)",
-    "validation": "tolerance 5 cents; see backend/app/core/receipt_validation.py"
+    "validation": "tolerance 5 cents; see backend/app/core/receipt_validation.py",
+    "currency": "Every *_cents value is an integer in MINOR units of its currency (exponent from shared/currencies.json: SGD 2, JPY 0, KWD 3). Cases without input.currency are SGD.",
+    "minor_units": "major → minor: ROUND_HALF_UP(amount × 10^exponent) (minor_unit_cases).",
+    "validation_tolerance": "max(1, ROUND_HALF_UP(0.05 × 10^exponent)) minor units (tolerance_cases).",
+    "conversion": "1 currency unit = fx_rate settle units. settle_total = ROUND_HALF_UP(grand_total_cents × fx_rate × 10^(settle_exponent − exponent)); per person = allocate(settle_total, per-person bill-currency totals_cents)."
   },
   "legacy_frontend_note": "Cases with a 'legacy_frontend' block are where the old float implementation (useCalculations.ts) differs: it only fixed rounding differences larger than 0.01, so it could leave the sum 1 cent off the grand total, and Math.round(x*100) misrounds some half-cents (e.g. 5.005). The 'expected' values are the contract.",
   "split_cases": [
@@ -2284,6 +2288,248 @@
           "C": 366666667
         }
       }
+    },
+    {
+      "id": "jpy-equal-three-with-service",
+      "description": "JPY (0 dp): ¥1,000 shared 3 ways, ¥1,100 with service.",
+      "tags": [
+        "multi-currency",
+        "rounding"
+      ],
+      "input": {
+        "currency": "JPY",
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1100
+      },
+      "expected": {
+        "items_cents": {
+          "A": 334,
+          "B": 333,
+          "C": 333
+        },
+        "totals_cents": {
+          "A": 368,
+          "B": 366,
+          "C": 366
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 334,
+            "B": 333,
+            "C": 333
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "jpy-tax-exclusive",
+      "description": "JPY: ¥1,200 + ¥800, 10% service and 10% tax on top = ¥2,420.",
+      "tags": [
+        "multi-currency",
+        "tax-exclusive"
+      ],
+      "input": {
+        "currency": "JPY",
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1200,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 800,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 2420
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1200,
+          "B": 800
+        },
+        "totals_cents": {
+          "A": 1452,
+          "B": 968
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1200
+          },
+          "i2": {
+            "B": 800
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "kwd-three-decimals",
+      "description": "KWD (3 dp): 1.250 + 2.375 KWD, grand 3.988 KWD (amounts in fils).",
+      "tags": [
+        "multi-currency",
+        "rounding"
+      ],
+      "input": {
+        "currency": "KWD",
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1250,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 2375,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 3988
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1250,
+          "B": 2375
+        },
+        "totals_cents": {
+          "A": 1375,
+          "B": 2613
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1250
+          },
+          "i2": {
+            "B": 2375
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "kwd-equal-odd-fils",
+      "description": "KWD: 10.000 KWD among 3 → the first share takes the extra fils.",
+      "tags": [
+        "multi-currency",
+        "rounding"
+      ],
+      "input": {
+        "currency": "KWD",
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 10000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 10000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 3334,
+          "B": 3333,
+          "C": 3333
+        },
+        "totals_cents": {
+          "A": 3334,
+          "B": 3333,
+          "C": 3333
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 3334,
+            "B": 3333,
+            "C": 3333
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
     }
   ],
   "validation_cases": [
@@ -2773,6 +3019,454 @@
         "warning_item_indexes": [],
         "charge_percents": []
       }
+    },
+    {
+      "id": "jpy-within-tolerance",
+      "description": "JPY tolerance is 1 yen (0.05 rounds to 0, floored at 1): ¥1 off is accepted.",
+      "input": {
+        "currency": "JPY",
+        "items": [
+          {
+            "name": "Ramen",
+            "quantity": "1",
+            "unit_price_cents": 1000,
+            "total_price_cents": 1000
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 1001
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "no_taxes",
+        "items_total_cents": 1000,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": 1001,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "jpy-outside-tolerance",
+      "description": "JPY: ¥2 off is rejected.",
+      "input": {
+        "currency": "JPY",
+        "items": [
+          {
+            "name": "Ramen",
+            "quantity": "1",
+            "unit_price_cents": 1000,
+            "total_price_cents": 1000
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 1002
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 1000,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "items_grand_mismatch"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "jpy-subtotal-tax-exclusive",
+      "description": "JPY with a printed subtotal and 10% tax.",
+      "input": {
+        "currency": "JPY",
+        "items": [
+          {
+            "name": "Ramen",
+            "quantity": "2",
+            "unit_price_cents": 980,
+            "total_price_cents": 1960
+          },
+          {
+            "name": "Gyoza",
+            "quantity": "1",
+            "unit_price_cents": 480,
+            "total_price_cents": 480
+          }
+        ],
+        "charges": [
+          {
+            "name": "Tax 10%",
+            "amount_cents": 244
+          }
+        ],
+        "subtotal_cents": 2440,
+        "grand_total_cents": 2684
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "tax_exclusive",
+        "items_total_cents": 2440,
+        "charges_total_cents": 244,
+        "final_subtotal_cents": 2440,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          "10.00"
+        ]
+      }
+    },
+    {
+      "id": "kwd-within-tolerance",
+      "description": "KWD tolerance is 50 fils (0.050 KWD).",
+      "input": {
+        "currency": "KWD",
+        "items": [
+          {
+            "name": "Machboos",
+            "quantity": "1",
+            "unit_price_cents": 3500,
+            "total_price_cents": 3500
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 3550
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "no_taxes",
+        "items_total_cents": 3500,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": 3550,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "kwd-outside-tolerance",
+      "description": "KWD: 51 fils off is rejected.",
+      "input": {
+        "currency": "KWD",
+        "items": [
+          {
+            "name": "Machboos",
+            "quantity": "1",
+            "unit_price_cents": 3500,
+            "total_price_cents": 3500
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 3551
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 3500,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "items_grand_mismatch"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "kwd-tax-exclusive-detected",
+      "description": "KWD: items == grand - charges.",
+      "input": {
+        "currency": "KWD",
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 2250,
+            "total_price_cents": 2250
+          },
+          {
+            "name": "B",
+            "quantity": "2",
+            "unit_price_cents": 375,
+            "total_price_cents": 750
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service",
+            "amount_cents": 300
+          }
+        ],
+        "subtotal_cents": null,
+        "grand_total_cents": 3300
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "tax_exclusive",
+        "items_total_cents": 3000,
+        "charges_total_cents": 300,
+        "final_subtotal_cents": 3000,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          "10.00"
+        ]
+      }
+    }
+  ],
+  "conversion_cases": [
+    {
+      "id": "myr-to-sgd",
+      "description": "1 MYR = 0.2950 SGD over three people.",
+      "input": {
+        "currency": "MYR",
+        "settle_currency": "SGD",
+        "fx_rate": "0.2950",
+        "grand_total_cents": 10000,
+        "totals_cents": [
+          3334,
+          3333,
+          3333
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 2950,
+        "settle_totals_cents": [
+          984,
+          983,
+          983
+        ]
+      }
+    },
+    {
+      "id": "jpy-to-sgd",
+      "description": "0 dp → 2 dp: ¥12,000 at 0.0091.",
+      "input": {
+        "currency": "JPY",
+        "settle_currency": "SGD",
+        "fx_rate": "0.0091",
+        "grand_total_cents": 12000,
+        "totals_cents": [
+          4000,
+          5000,
+          3000
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 10920,
+        "settle_totals_cents": [
+          3640,
+          4550,
+          2730
+        ]
+      }
+    },
+    {
+      "id": "sgd-to-jpy",
+      "description": "2 dp → 0 dp: S$46.68 at 110.25 → ¥5,146 (half-up).",
+      "input": {
+        "currency": "SGD",
+        "settle_currency": "JPY",
+        "fx_rate": "110.25",
+        "grand_total_cents": 4668,
+        "totals_cents": [
+          1276,
+          1276,
+          1426,
+          690
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 5146,
+        "settle_totals_cents": [
+          1407,
+          1407,
+          1571,
+          761
+        ]
+      }
+    },
+    {
+      "id": "kwd-to-sgd",
+      "description": "3 dp → 2 dp: 3.988 KWD at 4.4321.",
+      "input": {
+        "currency": "KWD",
+        "settle_currency": "SGD",
+        "fx_rate": "4.4321",
+        "grand_total_cents": 3988,
+        "totals_cents": [
+          1375,
+          2613
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 1768,
+        "settle_totals_cents": [
+          610,
+          1158
+        ]
+      }
+    },
+    {
+      "id": "sgd-to-kwd",
+      "description": "2 dp → 3 dp: S$10.00 at 0.2256.",
+      "input": {
+        "currency": "SGD",
+        "settle_currency": "KWD",
+        "fx_rate": "0.2256",
+        "grand_total_cents": 1000,
+        "totals_cents": [
+          500,
+          500
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 2256,
+        "settle_totals_cents": [
+          1128,
+          1128
+        ]
+      }
+    },
+    {
+      "id": "half-cent-rounds-up",
+      "description": "Converted total of exactly half a minor unit rounds up.",
+      "input": {
+        "currency": "SGD",
+        "settle_currency": "USD",
+        "fx_rate": "0.5",
+        "grand_total_cents": 1,
+        "totals_cents": [
+          1
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 1,
+        "settle_totals_cents": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "converted-remainder-to-largest",
+      "description": "Converted shares still sum exactly (remainder to largest).",
+      "input": {
+        "currency": "SGD",
+        "settle_currency": "MYR",
+        "fx_rate": "3.389830508475",
+        "grand_total_cents": 1001,
+        "totals_cents": [
+          334,
+          334,
+          333
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 3393,
+        "settle_totals_cents": [
+          1132,
+          1132,
+          1129
+        ]
+      }
+    },
+    {
+      "id": "zero-total",
+      "description": "Nothing to convert.",
+      "input": {
+        "currency": "EUR",
+        "settle_currency": "SGD",
+        "fx_rate": "1.4567",
+        "grand_total_cents": 0,
+        "totals_cents": [
+          0,
+          0
+        ]
+      },
+      "expected": {
+        "settle_grand_total_cents": 0,
+        "settle_totals_cents": [
+          0,
+          0
+        ]
+      }
+    }
+  ],
+  "minor_unit_cases": [
+    {
+      "amount": "12.345",
+      "currency": "SGD",
+      "exponent": 2,
+      "expected_cents": 1235
+    },
+    {
+      "amount": "12.3",
+      "currency": "SGD",
+      "exponent": 2,
+      "expected_cents": 1230
+    },
+    {
+      "amount": "-0.005",
+      "currency": "SGD",
+      "exponent": 2,
+      "expected_cents": -1
+    },
+    {
+      "amount": "1200.5",
+      "currency": "JPY",
+      "exponent": 0,
+      "expected_cents": 1201
+    },
+    {
+      "amount": "1199.4",
+      "currency": "JPY",
+      "exponent": 0,
+      "expected_cents": 1199
+    },
+    {
+      "amount": "1.2345",
+      "currency": "KWD",
+      "exponent": 3,
+      "expected_cents": 1235
+    },
+    {
+      "amount": "0.0005",
+      "currency": "KWD",
+      "exponent": 3,
+      "expected_cents": 1
+    },
+    {
+      "amount": "100",
+      "currency": "IDR",
+      "exponent": 0,
+      "expected_cents": 100
+    }
+  ],
+  "tolerance_cases": [
+    {
+      "currency": "SGD",
+      "exponent": 2,
+      "expected_tolerance_cents": 5
+    },
+    {
+      "currency": "JPY",
+      "exponent": 0,
+      "expected_tolerance_cents": 1
+    },
+    {
+      "currency": "KWD",
+      "exponent": 3,
+      "expected_tolerance_cents": 50
+    },
+    {
+      "currency": "IDR",
+      "exponent": 0,
+      "expected_tolerance_cents": 1
     }
   ]
 }

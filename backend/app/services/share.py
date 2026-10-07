@@ -96,7 +96,8 @@ async def public_view(db: AsyncSession, token: str) -> PublicShareOut:
         return PublicPerson(name=p.name, is_payer=p.is_payer,
                             items=[PublicItem(name=i.name, share_cents=i.share_cents) for i in p.items],
                             items_cents=p.items_cents, adjustment_cents=p.adjustment_cents,
-                            total_cents=p.total_cents, settled=p.outstanding_cents == 0,
+                            total_cents=p.total_cents, settle_total_cents=p.settle_total_cents,
+                            settled=p.outstanding_cents == 0,
                             outstanding_cents=p.outstanding_cents)
 
     payer = next((p.name for p in split.people if p.is_payer), None)
@@ -110,5 +111,7 @@ async def public_view(db: AsyncSession, token: str) -> PublicShareOut:
     await db.execute(update(ShareLink).where(ShareLink.id == link.id).values(last_viewed_at=now))
     await db.commit()
     return PublicShareOut(title=bill.title, merchant=bill.merchant, bill_date=bill.bill_date, currency=bill.currency,
-                          grand_total_cents=split.grand_total_cents, payer_name=payer,
+                          settle_currency=split.settle_currency, fx_rate=split.fx_rate,
+                          effective_currency=split.effective_currency, grand_total_cents=split.grand_total_cents,
+                          settle_grand_total_cents=split.settle_grand_total_cents, payer_name=payer,
                           scope="person" if link.person_id else "bill", person=scoped, people=people)

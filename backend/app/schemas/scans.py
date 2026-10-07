@@ -24,6 +24,7 @@ class JobOut(OutputModel):
     error_message: str | None
     retryable: bool
     model_used: str | None
+    detected_currency: str | None  # receipt currency when it differs from the bill's (offer a switch)
     pages_billed: int
     validation: dict[str, Any] | None
     timings: dict[str, Any]

@@ -1,9 +1,10 @@
 """Async OpenAI wrapper for receipt extraction (structured outputs).
 
 The system prompt, user prompt and schema are the original ones from
-``openai_service.py``. Model choice/escalation lives in ``services.extraction``; this
-module makes exactly one model call and reports tokens, latency, model and cost –
-also when the call fails, so usage is always recorded.
+``openai_service.py``; P1b added prompt rule 6 and the optional ``currency`` field.
+Model choice/escalation lives in ``services.extraction``; this module makes exactly
+one model call and reports tokens, latency, model and cost – also when the call
+fails, so usage is always recorded.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ CRITICAL RULES:
 3. subtotal: Use receipt value if shown, else 0.00 (DO NOT calculate)
 4. DO NOT perform calculations - extract amounts exactly as shown
 5. Extract ALL items, don't miss any
+6. currency: ISO 4217 code only if printed or clearly implied by symbols or the address, else null
 
 Return JSON format only, no markdown or explanations."""
 

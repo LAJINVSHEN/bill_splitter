@@ -1,5 +1,6 @@
 """The OpenAI structured-output schema – kept exactly as in the original
-``openai_service.py`` (the owner confirmed it works)."""
+``openai_service.py`` (the owner confirmed it works), plus one optional field:
+``currency`` (P1b multi-currency)."""
 
 from __future__ import annotations
 
@@ -41,3 +42,7 @@ class ReceiptExtraction(BaseModel):
     payment_method: str = "Unknown"
     transaction_id: Optional[str] = None  # noqa: UP045
     notes: Optional[str] = None  # noqa: UP045
+    currency: Optional[str] = Field(  # noqa: UP045
+        default=None,
+        description="ISO 4217 code only if printed or clearly implied by symbols or the address, else null",
+    )

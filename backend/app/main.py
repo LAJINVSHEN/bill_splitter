@@ -83,7 +83,7 @@ def create_app(settings: Settings | None = None,
                 logger.info("Marked %d interrupted scan job(s) as failed", recovered)
         except Exception:  # noqa: BLE001 - the DB may still be waking up; maintenance retries later
             logger.warning("Startup job recovery skipped (database unavailable?)")
-        logger.info("Bill Splitter API %s started (env=%s, llm=%s→%s)", __version__, settings.environment,
+        logger.info("%s API %s started (env=%s, llm=%s→%s)", settings.app_name, __version__, settings.environment,
                     settings.llm_primary_model, settings.llm_fallback_model or "-")
         try:
             yield
@@ -97,7 +97,7 @@ def create_app(settings: Settings | None = None,
             await db.dispose()
 
     app = FastAPI(
-        title="Bill Splitter API",
+        title=f"{settings.app_name} API",
         version=__version__,
         lifespan=lifespan,
         docs_url=None if settings.is_production else "/docs",

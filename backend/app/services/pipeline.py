@@ -26,6 +26,7 @@ from uuid import UUID
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.core.currencies import exponent
 from app.core.ocr_text import join_pages
 from app.integrations.azure_ocr import OcrError
 from app.integrations.llm import LlmCall
@@ -35,7 +36,12 @@ from app.models.scan import ACTIVE_JOB_STATUSES
 from app.repositories import bills as bills_repo
 from app.repositories import scans as repo
 from app.schemas.extraction import ReceiptExtraction
-from app.services.extraction import extract_with_escalation, extraction_to_core, validate_extraction
+from app.services.extraction import (
+    detected_currency,
+    extract_with_escalation,
+    extraction_to_core,
+    validate_extraction,
+)
 from app.services.split_view import validation_out
 
 if TYPE_CHECKING:
@@ -186,6 +192,9 @@ class JobRunner:
             owner_id, bill_id = job.owner_id, job.bill_id
             ocr_text, extracted = job.ocr_text, job.extracted
             timings: dict[str, Any] = dict(job.timings or {})
+            bill = await db.get(Bill, bill_id)
+            # Currency can't change while scanning, so the exponent is fixed for this run.
+            exp = exponent(bill.currency) if bill is not None else 2
         started = time.perf_counter()
         await self._update(job_id, started_at=_now(), heartbeat_at=_now())
 
@@ -204,9 +213,9 @@ class JobRunner:
         if extracted is None:
             await self._update(job_id, status="llm", heartbeat_at=_now())
             t0 = time.perf_counter()
-            extraction, model_used = await self._llm_stage(job_id, owner_id, ocr_text)
+            extraction, model_used = await self._llm_stage(job_id, owner_id, ocr_text, exp)
             timings["llm_ms"] = int((time.perf_counter() - t0) * 1000)
-            validation = validate_extraction(extraction)
+            validation = validate_extraction(extraction, exp)
             await self._update(job_id, extracted=extraction.model_dump(mode="json"), model_used=model_used,
                                validation=validation_out(validation).model_dump(mode="json"), timings=timings)
         else:
@@ -261,7 +270,8 @@ class JobRunner:
                 raise r
         return join_pages([r for r in results if isinstance(r, str)])
 
-    async def _llm_stage(self, job_id: UUID, owner_id: UUID, text: str) -> tuple[ReceiptExtraction, str]:
+    async def _llm_stage(self, job_id: UUID, owner_id: UUID, text: str,
+                         exp: int) -> tuple[ReceiptExtraction, str]:
         svc = self.svc
         current: dict[str, str] = {}
 
@@ -280,7 +290,8 @@ class JobRunner:
             await self._update(job_id, heartbeat_at=_now())
 
         try:
-            outcome = await extract_with_escalation(svc.llm, text, svc.settings.llm_models, on_call, before_call)
+            outcome = await extract_with_escalation(svc.llm, text, svc.settings.llm_models, on_call, before_call,
+                                                    exponent=exp)
         except asyncio.CancelledError:
             if "model" in current:
                 await asyncio.shield(self._record_usage(job_id, owner_id, kind="llm", provider=svc.llm.provider,
@@ -306,8 +317,6 @@ class JobRunner:
                            timings: dict[str, Any]) -> None:
         from app.services.bills import ChargeSpec, ItemSpec, parse_bill_date, replace_receipt
 
-        items, charges, grand, subtotal = extraction_to_core(extraction)
-        validation = validate_extraction(extraction)
         async with self.sm() as db:
             job = await db.scalar(select(ExtractionJob).where(ExtractionJob.id == job_id).with_for_update())
             if job is None or job.status not in ACTIVE_JOB_STATUSES:
@@ -315,6 +324,11 @@ class JobRunner:
             bill = await bills_repo.get_bill(db, owner_id, bill_id, full=True, for_update=True)
             if bill is None:
                 raise StageFailed("bill_deleted", "This bill was deleted.", retryable=False)
+            # Amounts are read in the BILL's currency; a different printed currency is only reported.
+            exp = exponent(bill.currency)
+            items, charges, grand, subtotal = extraction_to_core(extraction, exp)
+            validation = validate_extraction(extraction, exp)
+            job.detected_currency = detected_currency(extraction, bill.currency)
             await replace_receipt(
                 db, bill,
                 [ItemSpec(None, i.name[:200], i.quantity, i.unit_price_cents, i.total_price_cents) for i in items],

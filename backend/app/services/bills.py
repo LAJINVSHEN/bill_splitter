@@ -10,9 +10,11 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import delete, exists, insert, update
+from sqlalchemy import BigInteger, Numeric, cast, delete, exists, func, insert, literal, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.currencies import exponent
+from app.core.money import round_half_up
 from app.core.receipt_validation import ReceiptCharge, ReceiptItem, infer_charge_kind, validate_receipt
 from app.errors import BadRequest, Conflict, NotFound
 from app.middleware.auth import CurrentUser
@@ -39,8 +41,9 @@ from app.schemas.bills import (
     ShareOut,
 )
 from app.schemas.common import Page
+from app.services import fx
 from app.services.people import ensure_self
-from app.services.split_view import compute_bill_split, effective_payer, split_out, validate_bill, validation_out
+from app.services.split_view import effective_currency, effective_payer, split_out, validate_bill, validation_out
 
 
 def _now() -> datetime:
@@ -63,7 +66,9 @@ async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
         id=bill.id, title=bill.title, merchant=bill.merchant, bill_date=bill.bill_date, currency=bill.currency,
         status=bill.status, source=bill.source, payer_person_id=effective_payer(bill),
         subtotal_cents=bill.subtotal_cents, grand_total_cents=bill.grand_total_cents,
-        tax_scenario=bill.tax_scenario, receipt_meta=bill.receipt_meta or {},
+        tax_scenario=bill.tax_scenario, settle_currency=bill.settle_currency, fx_rate=bill.fx_rate,
+        effective_currency=effective_currency(bill), currency_locked=currency_locked(bill),
+        receipt_meta=bill.receipt_meta or {},
         created_at=bill.created_at, updated_at=bill.updated_at,
         items=[ItemOut(id=i.id, position=i.position, name=i.name, quantity=i.quantity,
                        unit_price_cents=i.unit_price_cents, total_price_cents=i.total_price_cents,
@@ -78,8 +83,8 @@ async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
                       for p in bill.participants],
         validation=validation_out(validation, [i.id for i in bill.items]) if validation else None,
         split=split_out(bill),
-        latest_job=JobBrief(id=job.id, status=job.status, error_code=job.error_code, retryable=job.retryable)
-        if job else None,
+        latest_job=JobBrief(id=job.id, status=job.status, error_code=job.error_code, retryable=job.retryable,
+                            detected_currency=job.detected_currency) if job else None,
         files=[FileOut(id=f.id, job_id=f.job_id, mime=f.mime, bytes=f.bytes, pages=f.pages, position=f.position,
                        created_at=f.created_at, expires_at=f.expires_at,
                        available=f.deleted_at is None and f.expires_at > now)
@@ -123,7 +128,7 @@ async def list_bills(db: AsyncSession, user: CurrentUser, statuses: list[str] | 
     rows = rows[:limit]
     items = [BillSummaryOut(id=b.id, title=b.title, merchant=b.merchant, bill_date=b.bill_date, currency=b.currency,
                             status=b.status, source=b.source, grand_total_cents=b.grand_total_cents,
-                            participant_count=pc, unsettled_count=uc, created_at=b.created_at,
+                            settle_currency=b.settle_currency, participant_count=pc, unsettled_count=uc, created_at=b.created_at,
                             updated_at=b.updated_at)
              for b, pc, uc in rows]
     next_cursor = encode_cursor(rows[-1][0].created_at, rows[-1][0].id) if has_more and rows else None
@@ -140,8 +145,7 @@ async def patch_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: B
     for name in ("title", "merchant", "bill_date"):
         if name in fields:
             setattr(bill, name, getattr(data, name))
-    if "currency" in fields and data.currency is not None:
-        bill.currency = data.currency
+    await _apply_currency_changes(db, user, bill, data, fields)
     if "payer_person_id" in fields:
         if data.payer_person_id is not None and data.payer_person_id not in {p.person_id for p in bill.participants}:
             raise BadRequest("payer_not_participant", "The payer must be one of the people on this bill.")
@@ -166,6 +170,81 @@ async def delete_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> UUI
     active = await scans_repo.active_job_for_bill(db, bill_id)
     await db.commit()
     return active.id if active else None
+
+
+def currency_locked(bill: Bill) -> bool:
+    """Currency and conversion are frozen once anyone has settled (like "currency locked once
+    payments exist"): settlements are recorded in the effective currency."""
+    return any(p.settled_at is not None for p in bill.participants)
+
+
+def _rescaled(value: int | None, factor: Decimal) -> int | None:
+    return None if value is None else round_half_up(Decimal(value) * factor)
+
+
+async def _rescale_amounts(db: AsyncSession, bill: Bill, old: str, new: str) -> None:
+    """Relabel a bill's amounts to another currency: the major-unit values stay the same, the
+    minor units are rescaled when exponents differ (×10^k up, ROUND_HALF_UP down)."""
+    shift = exponent(new) - exponent(old)
+    if shift == 0:
+        return
+    factor = Decimal(1).scaleb(shift)
+
+    def scaled(col):  # noqa: ANN001, ANN202 - SQL expression
+        return cast(func.round(col * literal(factor, Numeric)), BigInteger)
+
+    await db.execute(update(BillItem).where(BillItem.bill_id == bill.id).values(
+        unit_price_cents=scaled(BillItem.unit_price_cents), total_price_cents=scaled(BillItem.total_price_cents),
+    ).execution_options(synchronize_session=False))
+    await db.execute(update(BillCharge).where(BillCharge.bill_id == bill.id).values(
+        amount_cents=scaled(BillCharge.amount_cents)).execution_options(synchronize_session=False))
+    await db.execute(update(ItemShare).where(ItemShare.bill_id == bill.id, ItemShare.amount_cents.is_not(None)).values(
+        amount_cents=scaled(ItemShare.amount_cents)).execution_options(synchronize_session=False))
+    bill.subtotal_cents = _rescaled(bill.subtotal_cents, factor)
+    bill.grand_total_cents = _rescaled(bill.grand_total_cents, factor)
+
+
+async def _apply_currency_changes(db: AsyncSession, user: CurrentUser, bill: Bill, data: BillPatch,
+                                  fields: set[str]) -> None:
+    new_currency = data.currency if "currency" in fields and data.currency else bill.currency
+    changes_currency = new_currency != bill.currency
+    changes_conversion = ("settle_currency" in fields and data.settle_currency != bill.settle_currency) or (
+        "fx_rate" in fields and data.fx_rate is not None and data.fx_rate != bill.fx_rate)
+    if not (changes_currency or changes_conversion or data.save_rate):
+        return
+    if changes_currency or changes_conversion:
+        if bill.status == "scanning":
+            raise Conflict("scan_in_progress", "Wait for the scan to finish (or cancel it) first.")
+        if currency_locked(bill):
+            raise Conflict("currency_locked", "Someone has already settled up, so the currency can't change. "
+                                              "Undo their settlement first.")
+    if changes_currency:
+        await _rescale_amounts(db, bill, bill.currency, new_currency)
+        bill.currency = new_currency
+        if "settle_currency" not in fields:  # the old rate was for another pair
+            bill.settle_currency = bill.fx_rate = None
+
+    if "settle_currency" in fields:
+        if data.settle_currency is None:
+            bill.settle_currency = bill.fx_rate = None
+        else:
+            if data.settle_currency == bill.currency:
+                raise BadRequest("settle_same_currency", "Pick a different currency to settle in.")
+            rate = data.fx_rate
+            if rate is None:
+                saved = await fx.lookup(db, user.id, bill.currency, data.settle_currency)
+                if saved is None:
+                    raise BadRequest("fx_rate_required",
+                                     f"Enter a rate: 1 {bill.currency} = ? {data.settle_currency}.")
+                rate = saved.rate
+            bill.settle_currency, bill.fx_rate = data.settle_currency, rate  # snapshot
+    elif "fx_rate" in fields and data.fx_rate is not None:
+        if bill.settle_currency is None:
+            raise BadRequest("settle_currency_required", "Choose the currency to settle in first.")
+        bill.fx_rate = data.fx_rate
+
+    if data.save_rate and bill.settle_currency and bill.fx_rate:
+        await fx.save_rate(db, user.id, bill.currency, bill.settle_currency, bill.fx_rate)
 
 
 # ---------------------------------------------------------------------------- receipt
@@ -215,7 +294,7 @@ async def replace_receipt(db: AsyncSession, bill: Bill, items: list[ItemSpec], c
     result = validate_receipt(
         [ReceiptItem(s.name, s.quantity, s.unit_price_cents, s.total_price_cents) for s in items],
         [ReceiptCharge(c.name, c.amount_cents) for c in charges],
-        grand_total_cents, bill.subtotal_cents,
+        grand_total_cents, bill.subtotal_cents, exponent(bill.currency),
     )
     for pos, (spec, pct) in enumerate(zip(charges, result.charge_percents, strict=True)):
         db.add(BillCharge(bill_id=bill.id, position=pos, name=spec.name, amount_cents=spec.amount_cents,
@@ -352,9 +431,9 @@ async def settle(db: AsyncSession, user: CurrentUser, bill_id: UUID, person_id: 
         raise NotFound("Participant")
     if effective_payer(bill) == person_id:
         raise Conflict("is_payer", "The payer doesn't owe anything on this bill.")
-    if amount_cents is None:
-        result = compute_bill_split(bill).person(str(person_id))
-        amount_cents = result.total_cents if result else 0
+    if amount_cents is None:  # everything they owe, in the bill's effective currency
+        mine = next((p for p in split_out(bill).people if p.person_id == person_id), None)
+        amount_cents = mine.effective_total_cents if mine else 0
     if part.settled_at is None or part.settled_amount_cents != amount_cents:  # idempotent repeat = no-op
         part.settled_at = _now()
         part.settled_amount_cents = amount_cents

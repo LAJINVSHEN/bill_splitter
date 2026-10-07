@@ -15,6 +15,7 @@ from app.schemas.common import (
     InputModel,
     NonNegCents,
     OutputModel,
+    Rate,
 )
 
 BillStatus = Literal["draft", "scanning", "review", "assigning", "complete"]
@@ -43,9 +44,16 @@ class BillPatch(InputModel):
     title: Title | None = None
     merchant: Title | None = None
     bill_date: date | None = None
+    # Relabels the amounts (same major-unit values, rescaled minor units if the exponent differs)
+    # and clears any conversion unless one is given in the same request.
     currency: Currency | None = None
     status: ClientBillStatus | None = None
     payer_person_id: UUID | None = None
+    # Conversion snapshot: 1 unit of the bill currency = fx_rate units of settle_currency.
+    # settle_currency without fx_rate copies the user's saved rate; null clears the conversion.
+    settle_currency: Currency | None = None
+    fx_rate: Rate | None = None
+    save_rate: bool = False  # also store the rate in /me/fx-rates
 
 
 class ItemIn(InputModel):
@@ -237,13 +245,15 @@ class SplitPersonOut(OutputModel):
     color_seed: int
     is_self: bool
     is_payer: bool
-    items_cents: int
-    adjustment_cents: int  # their share of tax / service / discounts / rounding
-    total_cents: int
+    items_cents: int  # bill currency
+    adjustment_cents: int  # their share of tax / service / discounts / rounding (bill currency)
+    total_cents: int  # bill currency
+    settle_total_cents: int | None  # settle currency (null without a conversion)
+    effective_total_cents: int  # what they owe, in effective_currency
     items: list[SplitItemShareOut]
     settled_at: datetime | None
-    settled_amount_cents: int | None
-    outstanding_cents: int  # still owed to the payer (0 for the payer)
+    settled_amount_cents: int | None  # effective currency
+    outstanding_cents: int  # still owed to the payer, effective currency (0 for the payer)
 
 
 class SplitIssueOut(OutputModel):
@@ -256,8 +266,12 @@ class SplitIssueOut(OutputModel):
 
 
 class SplitOut(OutputModel):
-    currency: str
+    currency: str  # bill currency: grand_total_cents, items, total_cents
+    settle_currency: str | None
+    fx_rate: DecimalStr | None  # 1 currency = fx_rate settle_currency
+    effective_currency: str  # settle_currency if set, else currency (settlements, outstanding)
     grand_total_cents: int
+    settle_grand_total_cents: int | None
     all_items_cents: int
     assigned_items_cents: int
     payer_person_id: UUID | None
@@ -265,7 +279,7 @@ class SplitOut(OutputModel):
     unassigned_item_ids: list[UUID]
     issues: list[SplitIssueOut]
     is_complete: bool
-    outstanding_total_cents: int
+    outstanding_total_cents: int  # effective currency
 
 
 class JobBrief(OutputModel):
@@ -273,6 +287,7 @@ class JobBrief(OutputModel):
     status: str
     error_code: str | None
     retryable: bool
+    detected_currency: str | None  # receipt currency when it differs from the bill's
 
 
 class FileOut(OutputModel):
@@ -296,6 +311,7 @@ class BillSummaryOut(OutputModel):
     status: BillStatus
     source: BillSource
     grand_total_cents: int | None
+    settle_currency: str | None
     participant_count: int
     unsettled_count: int
     created_at: datetime
@@ -314,6 +330,10 @@ class BillOut(OutputModel):
     subtotal_cents: int | None
     grand_total_cents: int | None
     tax_scenario: TaxScenario | None
+    settle_currency: str | None
+    fx_rate: DecimalStr | None
+    effective_currency: str
+    currency_locked: bool  # true once anyone has settled: currency/conversion can't change
     receipt_meta: dict[str, Any]
     created_at: datetime
     updated_at: datetime

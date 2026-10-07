@@ -1,8 +1,10 @@
 """Receipt validation. PURE: no I/O, no framework imports.
 
-Ported from the original ``receipt_validator.py`` with the same meaning, in cents:
+Ported from the original ``receipt_validator.py`` with the same meaning, in minor units
+of the bill's currency (``exponent`` = its minor-unit digits, 2 by default):
 
-* tolerance: 5 cents;
+* tolerance: 0.05 major units → ``max(1, ROUND_HALF_UP(0.05 × 10^exponent))`` minor units
+  (5 cents for SGD, 1 yen for JPY, 50 fils for KWD);
 * **subtotal shown** (> 0): items must equal the subtotal, and subtotal + charges must
   equal the grand total → ``tax_exclusive``;
 * **no subtotal, no charges**: items must equal the grand total → ``no_taxes``;
@@ -24,9 +26,9 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Literal
 
-from app.core.money import format_cents
+from app.core.money import format_cents, tolerance_minor
 
-TOLERANCE_CENTS = 5
+TOLERANCE_CENTS = 5  # SGD/2-dp value of tolerance_minor(2), kept for reference
 
 TaxScenario = Literal["tax_exclusive", "tax_inclusive", "no_taxes"]
 ChargeKind = Literal["tax", "service", "discount", "rounding", "other"]
@@ -111,16 +113,18 @@ def infer_charge_kind(name: str, amount_cents: int) -> ChargeKind:
     return "other"
 
 
-def _fmt(cents: int) -> str:
-    return format_cents(cents)
-
-
 def validate_receipt(
     items: Sequence[ReceiptItem],
     charges: Sequence[ReceiptCharge],
     grand_total_cents: int | None,
     subtotal_cents: int | None = None,
+    exponent: int = 2,
 ) -> ValidationResult:
+    tolerance = tolerance_minor(exponent)
+
+    def _fmt(cents: int) -> str:
+        return format_cents(cents, exponent)
+
     items_total = sum(i.total_price_cents for i in items)
     charges_total = sum(c.amount_cents for c in charges)
     grand = grand_total_cents or 0
@@ -129,7 +133,7 @@ def validate_receipt(
     warnings: list[ItemWarning] = []
     for idx, item in enumerate(items):
         expected = int((item.quantity * item.unit_price_cents).quantize(Decimal(1), rounding=ROUND_HALF_UP))
-        if abs(item.total_price_cents - expected) > TOLERANCE_CENTS:
+        if abs(item.total_price_cents - expected) > tolerance:
             warnings.append(ItemWarning(
                 code="item_math_mismatch",
                 item_index=idx,
@@ -164,13 +168,13 @@ def validate_receipt(
 
     if provided_subtotal is not None:
         diff = abs(items_total - provided_subtotal)
-        if diff > TOLERANCE_CENTS:
+        if diff > tolerance:
             return fail("items_subtotal_mismatch", MSG_ITEMS_MISMATCH,
                         f"Items total ({_fmt(items_total)}) does not match provided subtotal "
                         f"({_fmt(provided_subtotal)}). Difference: {_fmt(diff)}.")
         expected_grand = provided_subtotal + charges_total
         gdiff = abs(expected_grand - grand)
-        if gdiff > TOLERANCE_CENTS:
+        if gdiff > tolerance:
             return fail("grand_total_mismatch", MSG_GRAND_MISMATCH,
                         f"Grand total validation failed. Expected: {_fmt(expected_grand)} "
                         f"(subtotal {_fmt(provided_subtotal)} + taxes {_fmt(charges_total)}), "
@@ -179,7 +183,7 @@ def validate_receipt(
 
     if charges_total == 0:
         diff = abs(items_total - grand)
-        if diff <= TOLERANCE_CENTS:
+        if diff <= tolerance:
             return result(True, "no_taxes", grand)
         return fail("items_grand_mismatch", MSG_ITEMS_MISMATCH,
                     f"Items total ({_fmt(items_total)}) does not match grand total ({_fmt(grand)}) "
@@ -188,9 +192,9 @@ def validate_receipt(
     items_vs_grand = abs(items_total - grand)
     calculated_subtotal = grand - charges_total
     items_vs_subtotal = abs(items_total - calculated_subtotal)
-    if items_vs_grand <= TOLERANCE_CENTS:
+    if items_vs_grand <= tolerance:
         return result(True, "tax_inclusive", grand)
-    if items_vs_subtotal <= TOLERANCE_CENTS and calculated_subtotal >= 0:
+    if items_vs_subtotal <= tolerance and calculated_subtotal >= 0:
         return result(True, "tax_exclusive", calculated_subtotal)
     technical = (
         f"Items total ({_fmt(items_total)}) matches neither scenario:\n"

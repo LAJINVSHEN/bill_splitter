@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     )
 
     # --- App -----------------------------------------------------------------
+    app_name: str = "even"  # product name (API title, logs)
     environment: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
     app_timezone: str = "Asia/Singapore"
@@ -71,7 +72,7 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""  # legacy HS256 secret (fallback when no JWKS key matches)
     supabase_service_role_key: str = ""  # service-role / sb_secret key (server only)
     supabase_admin_backend: Literal["supabase", "fake"] = "supabase"
-    auth_email_domain: str = "users.billsplitter.app"
+    auth_email_domain: str = "users.even.app"
     jwt_audience: str = "authenticated"
     jwt_leeway_seconds: int = 30
     jwks_cache_seconds: int = 600
@@ -134,9 +135,11 @@ class Settings(BaseSettings):
     @field_validator("default_currency")
     @classmethod
     def _upper_currency(cls, v: str) -> str:
+        from app.core.currencies import is_currency
+
         v = v.strip().upper()
-        if len(v) != 3 or not v.isalpha():
-            raise ValueError("DEFAULT_CURRENCY must be a 3-letter ISO code")
+        if not is_currency(v):
+            raise ValueError("DEFAULT_CURRENCY must be an ISO 4217 code from shared/currencies.json")
         return v
 
     @field_validator("supabase_url", "public_app_url")

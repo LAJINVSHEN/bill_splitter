@@ -47,13 +47,16 @@ async def password_changed(db: AsyncSession, user: CurrentUser) -> MeOut:
 
 
 async def summary(db: AsyncSession, user: CurrentUser) -> SummaryOut:
-    """Outstanding balances over complete bills, per currency, per person and per bill."""
+    """Outstanding balances over complete bills, per EFFECTIVE currency, per person and per bill.
+    ``home`` sums only bills whose effective currency is the user's default currency; other
+    currencies are listed separately and never converted implicitly."""
     me = await ensure_self(db, user.id, user.display_name)
     by_currency: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     by_person: dict[tuple[UUID, str], dict[str, object]] = {}
     bills_out: list[OutstandingBill] = []
     for bill in await bills_repo.bills_with_open_balances(db, user.id):
         split = split_out(bill)
+        cur = split.effective_currency  # settle currency when converted; never mixed with others
         payer = split.payer_person_id
         if payer is None:
             continue
@@ -65,10 +68,10 @@ async def summary(db: AsyncSession, user: CurrentUser) -> SummaryOut:
             unsettled += 1
             if payer == me.id and p.person_id != me.id:
                 owed_to_me += p.outstanding_cents
-                key, name, direction = (p.person_id, bill.currency), p.name, "they_owe_me_cents"
+                key, name, direction = (p.person_id, cur), p.name, "they_owe_me_cents"
             elif p.person_id == me.id and payer != me.id:
                 i_owe += p.outstanding_cents
-                key, name, direction = (payer, bill.currency), payer_name, "i_owe_them_cents"
+                key, name, direction = (payer, cur), payer_name, "i_owe_them_cents"
             else:
                 continue
             entry = by_person.setdefault(key, {"name": name, "they_owe_me_cents": 0, "i_owe_them_cents": 0,
@@ -76,14 +79,16 @@ async def summary(db: AsyncSession, user: CurrentUser) -> SummaryOut:
             entry[direction] = int(entry[direction]) + p.outstanding_cents  # type: ignore[call-overload]
             entry["bills"].add(bill.id)  # type: ignore[union-attr]
         if owed_to_me or i_owe:
-            by_currency[bill.currency][0] += owed_to_me
-            by_currency[bill.currency][1] += i_owe
+            by_currency[cur][0] += owed_to_me
+            by_currency[cur][1] += i_owe
             bills_out.append(OutstandingBill(bill_id=bill.id, title=bill.title or bill.merchant,
                                              bill_date=bill.bill_date.isoformat() if bill.bill_date else None,
-                                             currency=bill.currency, owed_to_me_cents=owed_to_me, i_owe_cents=i_owe,
+                                             currency=cur, owed_to_me_cents=owed_to_me, i_owe_cents=i_owe,
                                              unsettled_people=unsettled))
     await db.commit()
+    home = by_currency.get(user.default_currency, [0, 0])
     return SummaryOut(
+        home=CurrencyBalance(currency=user.default_currency, owed_to_me_cents=home[0], i_owe_cents=home[1]),
         currencies=[CurrencyBalance(currency=c, owed_to_me_cents=v[0], i_owe_cents=v[1])
                     for c, v in sorted(by_currency.items())],
         people=sorted(

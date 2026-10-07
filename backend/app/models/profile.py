@@ -2,8 +2,23 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, SmallInteger, String, Text, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    SmallInteger,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -80,4 +95,27 @@ class AppSettings(Base):
     )
 
 
-__all__ = ["AppSettings", "Person", "Profile"]
+class FxRate(Base):
+    """A user's saved conversion rate: 1 ``base`` = ``rate`` ``quote`` (typed by the user –
+    there is no FX feed). One row per unordered pair; the inverse is derived, not stored."""
+
+    __tablename__ = "fx_rates"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    base: Mapped[str] = mapped_column(String(3), nullable=False)
+    quote: Mapped[str] = mapped_column(String(3), nullable=False)
+    rate: Mapped[Decimal] = mapped_column(Numeric, nullable=False)  # arbitrary precision (≥ 10 significant digits)
+    created_at: Mapped[datetime] = created_at_col()
+    updated_at: Mapped[datetime] = updated_at_col()
+
+    __table_args__ = (
+        UniqueConstraint("owner_id", "base", "quote"),
+        CheckConstraint("base ~ '^[A-Z]{3}$' AND quote ~ '^[A-Z]{3}$' AND base <> quote", name="pair"),
+        CheckConstraint("rate > 0", name="rate_positive"),
+    )
+
+
+__all__ = ["AppSettings", "FxRate", "Person", "Profile"]

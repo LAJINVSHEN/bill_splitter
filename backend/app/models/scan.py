@@ -47,6 +47,8 @@ class ExtractionJob(Base):
     extracted: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     validation: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     model_used: Mapped[str | None] = mapped_column(Text)
+    # Currency the model read off the receipt when it differs from the bill's (not auto-applied).
+    detected_currency: Mapped[str | None] = mapped_column(String(3))
     idempotency_key: Mapped[str | None] = mapped_column(Text)
     pages_billed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
