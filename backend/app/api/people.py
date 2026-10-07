@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -31,8 +31,19 @@ async def patch_person(person_id: UUID, data: PersonPatch, user: CurrentUserDep,
     return await svc.patch_person(db, user.id, person_id, data)
 
 
+@router.delete("", status_code=204)
+async def clear_people(user: CurrentUserDep, db: DB,
+                       confirmation: Annotated[Literal["DELETE ALL PEOPLE"], Query()],
+                       permanent: bool = False) -> Response:
+    await svc.clear_people(db, user.id, permanent=permanent)
+    return Response(status_code=204)
+
+
 @router.delete("/{person_id}", status_code=204)
-async def delete_person(person_id: UUID, user: CurrentUserDep, db: DB) -> Response:
-    """Archives the person (old bills keep showing them)."""
-    await svc.archive_person(db, user.id, person_id)
+async def delete_person(person_id: UUID, user: CurrentUserDep, db: DB, permanent: bool = False) -> Response:
+    """Archive by default; explicit permanent deletion refuses all bill references."""
+    if permanent:
+        await svc.delete_person(db, user.id, person_id)
+    else:
+        await svc.archive_person(db, user.id, person_id)
     return Response(status_code=204)

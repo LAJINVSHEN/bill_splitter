@@ -5,7 +5,8 @@ receipt with every identifying detail replaced by a placeholder (merchant, addre
 registration / invoice / transaction numbers, card digits, names, dates). The sibling
 ``<name>.expected.json`` is the hand-adjudicated extraction in the ``ReceiptExtraction``
 schema, plus an optional ``_expect`` block (``tax_scenario``, ``warnings``) that the
-validator result must match.
+validator result must match. Adjudicated item counts and minor-unit totals live in
+``_expect`` too; coverage notes contain no private source text or identifiers.
 
 * Offline (always): every expected extraction reconciles in the validator, and no fixture
   contains anything that looks like personal data.
@@ -29,6 +30,8 @@ from typing import Any
 import pytest
 
 from app.config import DEFAULT_LLM_PRICES, Settings
+from app.core.money import to_cents
+from app.core.receipt_validation import infer_charge_kind
 from app.schemas.extraction import ReceiptExtraction
 from app.services.extraction import validate_extraction
 
@@ -63,6 +66,7 @@ def load_expected(name: str) -> tuple[ReceiptExtraction, dict[str, Any]]:
 
 
 def test_every_fixture_has_an_expected_extraction() -> None:
+    assert CASES, "At least one adjudicated OCR fixture is required"
     texts = set(CASES)
     expected = {p.name.removesuffix(".expected.json") for p in FIXTURES.glob("*.expected.json")} \
         if FIXTURES.is_dir() else set()
@@ -78,6 +82,73 @@ def test_expected_extraction_reconciles(name: str) -> None:
         assert result.tax_scenario == meta["tax_scenario"]
     if "warnings" in meta:
         assert len(result.warnings) == meta["warnings"], [w.message for w in result.warnings]
+    if "items_count" in meta:
+        assert len(extraction.items) == meta["items_count"]
+    for field in ("items_total_cents", "charges_total_cents", "grand_total_cents"):
+        if field in meta:
+            assert getattr(result, field) == meta[field]
+
+
+@pytest.mark.parametrize("name", CASES)
+def test_expected_extraction_has_only_placeholder_identity(name: str) -> None:
+    data = json.loads((FIXTURES / f"{name}.expected.json").read_text("utf-8"))
+    assert data["receipt_number"] == "<RECEIPT>"
+    assert data["date"] == PLACEHOLDER_DATE
+    assert data["time"] == "00:00"
+    assert data["store"] == {"name": "<MERCHANT>"}
+    assert "transaction_id" not in data
+    assert "card" not in data
+
+
+def _assert_matches_expected(actual: ReceiptExtraction, expected: ReceiptExtraction, summary: str) -> None:
+    want, got = validate_extraction(expected), validate_extraction(actual)
+    assert got.ok, summary
+    assert abs(got.grand_total_cents - want.grand_total_cents) <= TOLERANCE_CENTS, summary
+    assert len(actual.items) == len(expected.items), "priced item count: " + summary
+    assert abs(got.items_total_cents - want.items_total_cents) <= TOLERANCE_CENTS, summary
+    want_items = [(item.name.strip().casefold(), item.quantity,
+                   to_cents(item.unit_price), to_cents(item.total_price)) for item in expected.items]
+    got_items = [(item.name.strip().casefold(), item.quantity,
+                  to_cents(item.unit_price), to_cents(item.total_price)) for item in actual.items]
+    assert got_items == want_items, "priced item lines: " + summary
+    want_charges = sorted((infer_charge_kind(charge.name, to_cents(charge.amount)), to_cents(charge.amount))
+                          for charge in expected.taxes_or_charges)
+    got_charges = sorted((infer_charge_kind(charge.name, to_cents(charge.amount)), to_cents(charge.amount))
+                         for charge in actual.taxes_or_charges)
+    assert got_charges == want_charges, "charge lines: " + summary
+    assert to_cents(actual.subtotal) == to_cents(expected.subtotal), "printed subtotal: " + summary
+    assert got.tax_scenario == want.tax_scenario, "tax scenario: " + summary
+
+
+@pytest.mark.parametrize(("name", "mistake", "message"), [
+    ("bundle_extra_lines", "extra_line", "priced item count"),
+    ("shifted_prices_tax_inclusive", "shifted_price", "priced item lines"),
+    ("gst_service_quantities", "quantity", "priced item lines"),
+    ("shifted_prices_tax_inclusive", "missing_tax", "charge lines"),
+    ("service_positive_rounding", "missing_rounding", "charge lines"),
+])
+def test_matching_rejects_wrong_lines_even_when_totals_reconcile(name: str, mistake: str, message: str) -> None:
+    expected, _ = load_expected(name)
+    _assert_matches_expected(expected, expected, name)
+    actual = expected.model_copy(deep=True)
+    if mistake == "extra_line":
+        actual.items.append(actual.items[0].model_copy(update={
+            "name": "Unpriced bundle component", "unit_price": 0.0, "total_price": 0.0,
+        }))
+    elif mistake == "shifted_price":
+        first, second = actual.items[3:5]
+        first.unit_price, second.unit_price = second.unit_price, first.unit_price
+        first.total_price, second.total_price = second.total_price, first.total_price
+    elif mistake == "quantity":
+        actual.items[0].quantity = 1
+        actual.items[0].unit_price = actual.items[0].total_price
+    elif mistake == "missing_tax":
+        actual.taxes_or_charges.clear()
+    elif mistake == "missing_rounding":
+        actual.taxes_or_charges.pop()
+    assert validate_extraction(actual).ok
+    with pytest.raises(AssertionError, match=message):
+        _assert_matches_expected(actual, expected, name)
 
 
 @pytest.mark.parametrize("name", CASES)
@@ -129,7 +200,4 @@ async def test_live_primary_model_matches_expected(name: str) -> None:
     summary = (f"{model}/{effort}: total {got.grand_total_cents} vs {want.grand_total_cents}, "
                f"items {len(call.extraction.items)} vs {len(expected.items)}, "
                f"items sum {got.items_total_cents} vs {want.items_total_cents}, ok={got.ok}")
-    assert abs(got.grand_total_cents - want.grand_total_cents) <= TOLERANCE_CENTS, summary
-    assert len(call.extraction.items) == len(expected.items), summary
-    assert abs(got.items_total_cents - want.items_total_cents) <= TOLERANCE_CENTS, summary
-    assert got.ok, summary
+    _assert_matches_expected(call.extraction, expected, summary)

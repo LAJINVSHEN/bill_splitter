@@ -17,8 +17,10 @@ content (no merchant, item, amount or file name) and safe to quote.
 
 Guards (both counted across runs from ledgers in the output directory, so re-running
 never silently doubles the spend):
-  * Azure: ``--max-pages`` hard cap on pages analysed, ``--ocr-interval`` seconds between
-    submissions (F0 tier), exponential back-off on HTTP 429.
+  * Azure: ``--max-pages`` hard cap on pages analysed, ``--ocr-interval`` (>= 4) seconds
+    between submissions, and the app's own F0 request limiter (``AZURE_DI_CALLS_PER_MINUTE``
+    on every POST/poll/retry; a 429 pauses all requests). One attempt per file per run: a
+    service-level failure stops the OCR stage instead of retrying.
   * OpenAI: ``--budget-usd`` hard cap, priced with the app's price table
     (``Settings.llm_prices``); a conservative estimate is reserved before every call and
     the run stops when the next call might not fit.
@@ -248,8 +250,16 @@ async def stage_ocr(entries: list[dict[str, Any]], out: Path, settings: Settings
     log(f"ocr: {len(entries) - len(todo)} cached, {len(todo)} to analyse; pages used so far {pages_used}/{max_pages}")
     if not todo:
         return
+    # Same F0 gate as the app (build_ocr): the per-retry request limiter takes a slot for the
+    # analyze POST, every poll GET and every SDK retry, and a 429 pauses all requests. The
+    # limiter is per process, so keep --ocr-interval generous when the API is also scanning.
     client = AzureOcrClient(settings.azure_di_endpoint, settings.azure_di_key, max_concurrency=1,
-                            max_pdf_pages=settings.ocr_max_pdf_pages, timeout_seconds=settings.ocr_timeout_seconds)
+                            max_pdf_pages=settings.ocr_max_pdf_pages, timeout_seconds=settings.ocr_timeout_seconds,
+                            calls_per_minute=settings.azure_calls_per_minute_effective,
+                            rate_wait_seconds=settings.ocr_rate_wait_seconds,
+                            poll_interval_seconds=settings.ocr_poll_interval_seconds)
+    log(f"ocr: request limiter {client.limiter.limit}/min, poll every {client.poll_interval:.0f}s, "
+        f"{interval:.0f}s between submissions")
     last_submit = 0.0
     try:
         for n, entry in enumerate(todo, start=1):
@@ -257,37 +267,36 @@ async def stage_ocr(entries: list[dict[str, Any]], out: Path, settings: Settings
                 log(f"ocr: page cap reached ({pages_used}/{max_pages}); stopping")
                 break
             data = (out / "images" / f"{entry['sha']}.jpg").read_bytes()
-            for attempt in range(6):
-                wait = last_submit + interval - time.monotonic()
-                if wait > 0:
-                    await asyncio.sleep(wait)
-                last_submit = time.monotonic()
-                try:
-                    result = await client.analyze(data, "image/jpeg")
-                except OcrError as exc:
-                    billed = 1 if exc.submitted else 0
-                    pages_used += billed
-                    append_jsonl(ledger_path, {"at": now_iso(), "sha": entry["sha"], "ok": False, "code": exc.code,
-                                               "pages": billed})
-                    if exc.code == "ocr_rate_limited" and attempt < 5:
-                        backoff = 10 * 2 ** attempt
-                        log(f"ocr: 429, backing off {backoff}s")
-                        await asyncio.sleep(backoff)
-                        continue
-                    log(f"ocr: {entry['sha'][:10]} failed: {exc.code}")
+            wait = last_submit + interval - time.monotonic()
+            if wait > 0:
+                await asyncio.sleep(wait)
+            last_submit = time.monotonic()
+            # One attempt per file per run, never a retry loop: a failure is recorded (a submitted
+            # one counts as a billed page) and a re-run picks the file up again.
+            try:
+                result = await client.analyze(data, "image/jpeg")
+            except OcrError as exc:
+                billed = 1 if exc.submitted else 0
+                pages_used += billed
+                append_jsonl(ledger_path, {"at": now_iso(), "sha": entry["sha"], "ok": False, "code": exc.code,
+                                           "pages": billed})
+                log(f"ocr: {entry['sha'][:10]} failed: {exc.code} (billed {billed})")
+                if exc.code != "ocr_rejected":  # anything not specific to this file: stop, don't hammer
+                    log("ocr: stopping the OCR stage after a service-level failure")
                     break
-                pages_used += result.pages
-                append_jsonl(ledger_path, {"at": now_iso(), "sha": entry["sha"], "ok": True, "pages": result.pages,
-                                           "latency_ms": result.latency_ms})
-                (out / "ocr").mkdir(parents=True, exist_ok=True)
-                (out / "ocr" / f"{entry['sha']}.md").write_text(result.text, "utf-8")
-                write_json(out / "ocr" / f"{entry['sha']}.json",
-                           {"latency_ms": result.latency_ms, "pages": result.pages, "bytes": len(data),
-                            "chars": len(result.text), "at": now_iso()})
-                log(f"ocr: [{n}/{len(todo)}] {entry['sha'][:10]} {result.latency_ms} ms, "
-                    f"{len(result.text)} chars (pages {pages_used}/{max_pages})")
-                break
+                continue
+            pages_used += result.pages
+            append_jsonl(ledger_path, {"at": now_iso(), "sha": entry["sha"], "ok": True, "pages": result.pages,
+                                       "latency_ms": result.latency_ms})
+            (out / "ocr").mkdir(parents=True, exist_ok=True)
+            (out / "ocr" / f"{entry['sha']}.md").write_text(result.text, "utf-8")
+            write_json(out / "ocr" / f"{entry['sha']}.json",
+                       {"latency_ms": result.latency_ms, "pages": result.pages, "bytes": len(data),
+                        "chars": len(result.text), "at": now_iso()})
+            log(f"ocr: [{n}/{len(todo)}] {entry['sha'][:10]} {result.latency_ms} ms, "
+                f"{len(result.text)} chars (pages {pages_used}/{max_pages})")
     finally:
+        log(f"ocr: {client.limiter.acquired} Azure requests made (POST + polls + retries)")
         await client.aclose()
 
 
@@ -748,7 +757,8 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="run at most N receipts (0 = all)")
     ap.add_argument("--budget-usd", type=float, default=3.0, help="hard OpenAI cap across runs in --out")
     ap.add_argument("--max-pages", type=int, default=80, help="hard Azure page cap across runs in --out")
-    ap.add_argument("--ocr-interval", type=float, default=3.0, help="seconds between Azure submissions")
+    ap.add_argument("--ocr-interval", type=float, default=4.0,
+                    help="seconds between Azure submissions (at least 4; the request limiter applies too)")
     ap.add_argument("--concurrency", type=int, default=3, help="parallel LLM calls per configuration")
     ap.add_argument("--repeats", type=int, default=1,
                     help="runs per configuration × receipt (repeat r is only started after repeat r-1 everywhere)")
@@ -756,6 +766,8 @@ def main() -> None:
     ap.add_argument("--jpeg-quality", type=int, default=80)
     args = ap.parse_args()
 
+    if args.ocr_interval < 4:
+        raise SystemExit("--ocr-interval must be at least 4 seconds (Azure F0)")
     out: Path = args.out.resolve()
     if args.out == DEFAULT_OUT and not str(out).startswith(str(REPO_ROOT / ".local")):
         raise SystemExit("refusing to write outside .local/")

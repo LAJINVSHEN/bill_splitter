@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -53,6 +53,12 @@ async def patch_user(user_id: UUID, data: AdminUserPatch, admin: AdminDep, db: D
 async def reset_password(request: Request, user_id: UUID, admin: AdminDep, db: DB,
                          services: ServicesDep) -> PasswordReset:
     return await svc.reset_password(db, services.auth_admin, user_id)
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(user_id: UUID, admin: AdminDep, db: DB, services: ServicesDep) -> Response:
+    await svc.delete_user(db, services, admin, user_id)
+    return Response(status_code=204)
 
 
 @router.get("/usage", response_model=AdminUsageOut)

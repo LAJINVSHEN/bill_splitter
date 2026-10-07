@@ -8,15 +8,19 @@ import string
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+import httpx
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
 from app.core.periods import current_month_bounds, month_bounds, month_key, parse_month
 from app.errors import AppError, BadRequest, Conflict, NotFound
+from app.integrations.storage import StorageError
 from app.integrations.supabase_admin import EmailTaken, SupabaseAdmin, SupabaseAdminError
 from app.middleware.auth import CurrentUser
-from app.models import Profile
+from app.models import ExtractionJob, Profile, ReceiptFile
+from app.models.scan import ACTIVE_JOB_STATUSES
 from app.pagination import decode_cursor, encode_cursor
 from app.repositories import usage as usage_repo
 from app.schemas.admin import (
@@ -35,7 +39,9 @@ from app.schemas.admin import (
     UserUsage,
 )
 from app.schemas.common import Page
+from app.services.container import Services
 from app.services.people import ensure_self
+from app.services.pipeline import mark_job_failed
 from app.services.usage import app_settings
 
 logger = logging.getLogger(__name__)
@@ -56,7 +62,7 @@ def temp_password(length: int = 16) -> str:
 
 
 def _auth_failure(exc: SupabaseAdminError) -> AppError:
-    logger.warning("Supabase admin call failed: %s", exc)
+    logger.warning("Supabase admin call failed (status=%s)", exc.status_code)
     return AppError(502, "auth_provider_error", "The sign-in service rejected the request. Try again.")
 
 
@@ -165,6 +171,61 @@ async def reset_password(db: AsyncSession, auth: SupabaseAdmin, user_id: UUID) -
     p.must_change_password = True
     await db.commit()
     return PasswordReset(temp_password=password)
+
+
+async def delete_user(db: AsyncSession, services: Services, admin: CurrentUser, user_id: UUID) -> None:
+    """Drain bill writers before the final receipt snapshot so in-flight uploads cannot escape it."""
+    if user_id == admin.id:
+        raise Conflict("cannot_delete_self", "You can't delete your own account.")
+    profile = await db.scalar(select(Profile).where(Profile.id == user_id)
+                              .with_for_update(key_share=True))
+    if profile is None:
+        return
+    try:
+        await services.auth_admin.delete_user(user_id)
+    except SupabaseAdminError as exc:
+        if exc.status_code != 404:
+            raise _auth_failure(exc) from exc
+    except httpx.HTTPError:
+        raise AppError(502, "auth_provider_error", "Couldn't reach the sign-in service. Try again.") from None
+
+    try:
+        profile.disabled_at = profile.disabled_at or datetime.now(UTC)
+        await db.commit()
+        while True:
+            jobs = list((await db.execute(select(ExtractionJob.id, ExtractionJob.status)
+                                           .where(ExtractionJob.owner_id == user_id))).all())
+            for job_id, status in jobs:
+                if status in ACTIVE_JOB_STATUSES:
+                    await mark_job_failed(db, job_id, "account_deleted", "Account deletion stopped this scan.",
+                                          retryable=False, status="cancelled")
+            await db.commit()
+            for job_id, _ in jobs:
+                await services.runner.cancel(job_id)
+                if services.runner.is_running(job_id):
+                    raise AppError(503, "account_cleanup_pending",
+                                   "Sign-in was removed, but a scan is still stopping. Retry account deletion.")
+            await db.execute(text("LOCK TABLE bills IN EXCLUSIVE MODE"))
+            latest = list((await db.execute(select(ExtractionJob.id, ExtractionJob.status)
+                                             .where(ExtractionJob.owner_id == user_id))).all())
+            if not any(status in ACTIVE_JOB_STATUSES or services.runner.is_running(job_id)
+                       for job_id, status in latest):
+                break
+            await db.commit()
+        files = list((await db.scalars(select(ReceiptFile).where(
+            ReceiptFile.owner_id == user_id, ReceiptFile.deleted_at.is_(None)))).all())
+        if files:
+            try:
+                await services.storage.delete([receipt.storage_path for receipt in files])
+            except (StorageError, httpx.HTTPError, OSError):
+                raise AppError(503, "account_cleanup_pending",
+                               "Sign-in was removed, but receipt cleanup failed. Retry account deletion.") from None
+        await db.execute(delete(Profile).where(Profile.id == user_id))
+        await db.commit()
+    except SQLAlchemyError:
+        await db.rollback()
+        raise AppError(503, "account_cleanup_pending",
+                       "Sign-in was removed, but account cleanup is incomplete. Retry account deletion.") from None
 
 
 async def usage(db: AsyncSession, settings: Settings, month: str | None) -> AdminUsageOut:

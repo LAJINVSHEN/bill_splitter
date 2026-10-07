@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import BigInteger, Numeric, cast, delete, exists, func, insert, literal, update
+from sqlalchemy import BigInteger, Numeric, cast, delete, exists, func, insert, literal, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.currencies import exponent
@@ -19,7 +19,7 @@ from app.core.receipt_validation import ReceiptCharge, ReceiptItem, infer_charge
 from app.errors import BadRequest, Conflict, NotFound
 from app.middleware.auth import CurrentUser
 from app.models import Bill, BillCharge, BillItem, BillParticipant, ItemShare, ShareLink
-from app.models.scan import ReceiptFile
+from app.models.scan import ACTIVE_JOB_STATUSES, ExtractionJob, ReceiptFile
 from app.pagination import decode_cursor, encode_cursor
 from app.repositories import bills as bills_repo
 from app.repositories import people as people_repo
@@ -42,6 +42,7 @@ from app.schemas.bills import (
 )
 from app.schemas.common import Page
 from app.services import fx
+from app.services.container import Services
 from app.services.people import ensure_self
 from app.services.split_view import effective_currency, effective_payer, split_out, validate_bill, validation_out
 
@@ -116,22 +117,45 @@ async def get_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> BillOu
 
 
 async def list_bills(db: AsyncSession, user: CurrentUser, statuses: list[str] | None, limit: int,
-                     cursor: str | None) -> Page[BillSummaryOut]:
+                     cursor: str | None, *, settled: bool | None = None) -> Page[BillSummaryOut]:
     after = None
     if cursor:
         created_at, bill_id = decode_cursor(cursor, 2)
         if not isinstance(created_at, datetime) or not isinstance(bill_id, UUID):
             raise BadRequest("invalid_cursor", "The pagination cursor is invalid.")
         after = (created_at, bill_id)
-    rows = await bills_repo.list_bills(db, user.id, statuses=statuses, limit=limit + 1, after=after)
-    has_more = len(rows) > limit
-    rows = rows[:limit]
-    items = [BillSummaryOut(id=b.id, title=b.title, merchant=b.merchant, bill_date=b.bill_date, currency=b.currency,
-                            status=b.status, source=b.source, grand_total_cents=b.grand_total_cents,
-                            settle_currency=b.settle_currency, participant_count=pc, unsettled_count=uc, created_at=b.created_at,
-                            updated_at=b.updated_at)
-             for b, pc, uc in rows]
-    next_cursor = encode_cursor(rows[-1][0].created_at, rows[-1][0].id) if has_more and rows else None
+    if settled is not None:
+        if statuses and "complete" not in statuses:
+            return Page[BillSummaryOut](items=[], next_cursor=None)
+        statuses = ["complete"]
+    items: list[BillSummaryOut] = []
+    while len(items) <= limit:
+        rows = await bills_repo.list_bills(db, user.id, statuses=statuses, limit=limit + 1, after=after)
+        for bill in rows:
+            split = split_out(bill)
+            unsettled_count = sum(person.outstanding_cents > 0 for person in split.people)
+            if settled is not None and (unsettled_count == 0) != settled:
+                continue
+            validation = validate_bill(bill)
+            items.append(BillSummaryOut(
+                id=bill.id, title=bill.title, merchant=bill.merchant, bill_date=bill.bill_date,
+                currency=bill.currency, status=bill.status, source=bill.source,
+                grand_total_cents=bill.grand_total_cents, settle_currency=bill.settle_currency,
+                participant_count=len(bill.participants), unsettled_count=unsettled_count,
+                participant_names=["You" if person.is_self else person.name for person in split.people],
+                unassigned_item_count=len(split.unassigned_item_ids),
+                price_issue_count=len(validation.warnings) if validation else 0,
+                validation_issue_count=len(validation.errors) if validation else 0,
+                created_at=bill.created_at, updated_at=bill.updated_at,
+            ))
+            if len(items) > limit:
+                break
+        if len(items) > limit or len(rows) < limit + 1:
+            break
+        after = (rows[-1].created_at, rows[-1].id)
+    has_more = len(items) > limit
+    items = items[:limit]
+    next_cursor = encode_cursor(items[-1].created_at, items[-1].id) if has_more else None
     return Page[BillSummaryOut](items=items, next_cursor=next_cursor)
 
 
@@ -155,21 +179,64 @@ async def patch_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: B
     return await _reload_out(db, user.id, bill_id)
 
 
-async def delete_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> UUID | None:
-    """Soft delete. Share links are revoked, photos are queued for purge. Returns an
-    active job id (if any) so the caller can cancel it."""
-    bill = await bills_repo.get_bill(db, user.id, bill_id, for_update=True)
-    if bill is None:
+async def delete_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, services: Services,
+                      *, permanent: bool = False) -> None:
+    owned = await db.scalar(select(Bill.id).where(Bill.owner_id == user.id, Bill.id == bill_id))
+    if owned is None:
         raise NotFound("Bill")
+    await _delete_bills(db, user, services, [owned], permanent=permanent)
+
+
+async def clear_bills(db: AsyncSession, user: CurrentUser, services: Services, *, permanent: bool = False,
+                      person_id: UUID | None = None) -> None:
+    stmt = select(Bill.id).where(Bill.owner_id == user.id)
+    if person_id is not None:
+        if await people_repo.get_person(db, user.id, person_id) is None:
+            raise NotFound("Person")
+        stmt = stmt.where(Bill.id.in_(people_repo.referencing_bill_ids([person_id])))
+    ids = list((await db.scalars(stmt)).all())
+    await _delete_bills(db, user, services, ids, permanent=permanent)
+
+
+async def _delete_bills(db: AsyncSession, user: CurrentUser, services: Services, ids: list[UUID],
+                        *, permanent: bool) -> None:
+    """Purge history only after stopping workers. Tombstones retain the photo purge
+    queue and job/usage accounting; none of these can be reopened as a bill."""
     now = _now()
-    bill.deleted_at = now
-    await db.execute(update(ShareLink).where(ShareLink.bill_id == bill_id, ShareLink.revoked_at.is_(None))
+    bill_ids = select(Bill.id).where(Bill.owner_id == user.id, Bill.id.in_(ids))
+    await db.execute(update(Bill).where(Bill.id.in_(bill_ids), Bill.deleted_at.is_(None))
+                     .values(deleted_at=now))
+    await db.execute(update(ShareLink).where(ShareLink.bill_id.in_(bill_ids), ShareLink.revoked_at.is_(None))
                      .values(revoked_at=now))
-    await db.execute(update(ReceiptFile).where(ReceiptFile.bill_id == bill_id, ReceiptFile.deleted_at.is_(None))
+    await db.execute(update(ReceiptFile).where(ReceiptFile.bill_id.in_(bill_ids), ReceiptFile.deleted_at.is_(None))
                      .values(expires_at=now))
-    active = await scans_repo.active_job_for_bill(db, bill_id)
     await db.commit()
-    return active.id if active else None
+    job_ids = list((await db.scalars(select(ExtractionJob.id).where(
+        ExtractionJob.owner_id == user.id, ExtractionJob.bill_id.in_(bill_ids),
+    ))).all())
+    await db.execute(update(ExtractionJob).where(
+        ExtractionJob.id.in_(job_ids), ExtractionJob.status.in_(ACTIVE_JOB_STATUSES),
+    ).values(status="cancelled", error_code="cancelled", error_message="Bill deleted.", retryable=False,
+             finished_at=now, pages_reserved=0))
+    await db.commit()
+    for job_id in job_ids:
+        await services.runner.cancel(job_id)
+    if any(services.runner.is_running(job_id) for job_id in job_ids):
+        raise Conflict("scan_stopping", "The bill is hidden, but a scan is still stopping. Retry deletion shortly.")
+    if permanent:
+        await db.execute(delete(BillItem).where(BillItem.bill_id.in_(bill_ids)))
+        await db.execute(delete(BillCharge).where(BillCharge.bill_id.in_(bill_ids)))
+        await db.execute(delete(BillParticipant).where(BillParticipant.bill_id.in_(bill_ids)))
+        await db.execute(delete(ShareLink).where(ShareLink.bill_id.in_(bill_ids)))
+        await db.execute(update(Bill).where(Bill.id.in_(bill_ids)).values(
+            title=None, merchant=None, bill_date=None, payer_person_id=None, subtotal_cents=None,
+            grand_total_cents=None, tax_scenario=None, receipt_meta={}, settle_currency=None, fx_rate=None,
+        ))
+        await db.execute(update(ExtractionJob).where(ExtractionJob.id.in_(job_ids)).values(
+            ocr_text=None, extracted=None, validation=None, detected_currency=None, error_message=None,
+            retryable=False, pages_reserved=0,
+        ))
+        await db.commit()
 
 
 def currency_locked(bill: Bill) -> bool:

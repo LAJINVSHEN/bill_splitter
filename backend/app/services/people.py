@@ -4,6 +4,8 @@ import hashlib
 from datetime import UTC, datetime
 from uuid import UUID
 
+from sqlalchemy import delete, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import AppError, Conflict, NotFound
@@ -63,7 +65,7 @@ async def patch_person(db: AsyncSession, owner_id: UUID, person_id: UUID, data: 
 
 
 async def archive_person(db: AsyncSession, owner_id: UUID, person_id: UUID) -> None:
-    """People are archived, never hard-deleted, so old bills keep their names."""
+    """Archive by default so old bills keep their names."""
     person = await repo.get_person(db, owner_id, person_id)
     if person is None:
         raise NotFound("Person")
@@ -72,3 +74,48 @@ async def archive_person(db: AsyncSession, owner_id: UUID, person_id: UUID) -> N
     if person.archived_at is None:
         person.archived_at = datetime.now(UTC)
         await db.commit()
+
+
+def _referenced(count: int | None = None) -> Conflict:
+    return Conflict("person_referenced", "Saved people are still used by bills, including deleted bills. "
+                    "Permanently delete their associated bills first, or archive the people to keep history.",
+                    bill_count=count)
+
+
+async def delete_person(db: AsyncSession, owner_id: UUID, person_id: UUID) -> None:
+    person = await repo.get_person(db, owner_id, person_id, for_update=True)
+    if person is None:
+        return
+    if person.is_self:
+        raise Conflict("cannot_delete_self", "You can't delete Me. Account deletion is an admin action.")
+    count = await repo.reference_count(db, [person.id])
+    if count:
+        raise _referenced(count)
+    await db.delete(person)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise _referenced() from None
+
+
+async def clear_people(db: AsyncSession, owner_id: UUID, *, permanent: bool) -> None:
+    rows = list((await db.scalars(select(Person).where(
+        Person.owner_id == owner_id, Person.is_self.is_(False),
+    ).order_by(Person.id).with_for_update())).all())
+    if not permanent:
+        await db.execute(update(Person).where(
+            Person.owner_id == owner_id, Person.is_self.is_(False), Person.archived_at.is_(None),
+        ).values(archived_at=datetime.now(UTC)))
+    else:
+        ids = [person.id for person in rows]
+        count = await repo.reference_count(db, ids)
+        if count:
+            raise _referenced(count)
+        await db.execute(delete(Person).where(Person.owner_id == owner_id, Person.id.in_(ids),
+                                               Person.is_self.is_(False)))
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise _referenced() from None

@@ -1,0 +1,28 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "Item A (Set)", "quantity": 1, "unit_price": 18.90, "total_price": 18.90},
+    {"name": "Item B (Set)", "quantity": 1, "unit_price": 15.90, "total_price": 15.90},
+    {"name": "Item C", "quantity": 1, "unit_price": 18.90, "total_price": 18.90}
+  ],
+  "subtotal": 53.70,
+  "taxes_or_charges": [
+    {"name": "Service Charge 6%", "amount": 3.22},
+    {"name": "Rounding", "amount": -0.02}
+  ],
+  "grand_total": 56.90,
+  "payment_method": "Unknown",
+  "currency": "MYR",
+  "_expect": {
+    "tax_scenario": "tax_exclusive",
+    "warnings": 0,
+    "items_count": 3,
+    "items_total_cents": 5370,
+    "charges_total_cents": 320,
+    "grand_total_cents": 5690,
+    "coverage": "Three adjudicated priced lines, including two sets. Service rounds to 3.22 and the printed negative 0.02 cash adjustment is a separate rounding charge. Single-photo OCR."
+  }
+}

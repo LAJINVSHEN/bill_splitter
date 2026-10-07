@@ -5,6 +5,8 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+import pytest
+
 from tests.conftest import Ctx, AppUser
 
 RECEIPT = {
@@ -86,6 +88,116 @@ async def test_people_input_caps(ctx: Ctx) -> None:
 
 
 # ------------------------------------------------------------------------- bills
+@pytest.mark.parametrize("permanent", [False, True])
+@pytest.mark.parametrize("bulk", [False, True])
+async def test_bill_deletion_cancels_jobs_queues_photos_keeps_usage(ctx: Ctx, permanent: bool, bulk: bool) -> None:
+    from app.services.maintenance import run_maintenance
+    from tests.conftest import jpeg
+    from tests.test_scans import scan, wait_status
+
+    user, other = await ctx.user(), await ctx.user("other")
+    bill = await new_bill(ctx, user)
+    survivor = await new_bill(ctx, other)
+    link = (await ctx.client.post(f"/api/bills/{bill['id']}/share-links", headers=user.headers)).json()
+    ctx.ocr.delay = 5
+    response = await scan(ctx, user, bill["id"], [jpeg()])
+    assert response.status_code == 202, response.text
+    job_id = response.json()["job_id"]
+    await wait_status(ctx, user, job_id, "ocr")
+    await ctx.sql("INSERT INTO usage_events (user_id, job_id, kind, provider, pages, cost_micros, ok) "
+                  "VALUES (:uid, :jid, 'llm', 'fake', 0, 42, true)", uid=user.id, jid=job_id)
+    url = "/api/bills" if bulk else f"/api/bills/{bill['id']}"
+    params = {"permanent": str(permanent).lower()}
+    if bulk:
+        params["confirmation"] = "DELETE ALL BILLS"
+    for _ in range(2):
+        response = await ctx.client.delete(url, headers=user.headers, params=params)
+        assert response.status_code == 204, response.text
+    assert not ctx.services.runner.is_running(uuid.UUID(job_id))
+    assert await ctx.sql("SELECT status, pages_reserved, retryable FROM extraction_jobs WHERE id = :id",
+                         id=job_id) == [("cancelled", 0, False)]
+    assert await ctx.sql("SELECT sum(pages), sum(cost_micros) FROM usage_events WHERE user_id = :id",
+                         id=user.id) == [(1, 42)]
+    assert (await ctx.client.post(f"/api/jobs/{job_id}/retry", headers=user.headers)).status_code == 409
+    assert (await ctx.client.get(f"/api/public/share/{link['token']}")).status_code == 404
+    assert (await ctx.client.get(f"/api/bills/{survivor['id']}", headers=other.headers)).status_code == 200
+    assert await ctx.sql("SELECT expires_at <= now(), deleted_at IS NULL FROM receipt_files WHERE bill_id = :id",
+                         id=bill["id"]) == [(True, True)]
+    if permanent:
+        assert await ctx.sql("SELECT person_id FROM bill_participants WHERE bill_id = :id", id=bill["id"]) == []
+        assert await ctx.sql("SELECT token_hash FROM share_links WHERE bill_id = :id", id=bill["id"]) == []
+    result = await run_maintenance(ctx.services, ctx.sm)
+    assert result.purged_files == 1 and result.purge_failures == 0
+    assert await ctx.sql("SELECT deleted_at IS NOT NULL FROM receipt_files WHERE bill_id = :id",
+                         id=bill["id"]) == [(True,)]
+
+
+async def test_permanent_people_conflict_then_purge_associated_history(ctx: Ctx) -> None:
+    user, other = await ctx.user(), await ctx.user("other")
+    bill, ids = await full_bill(ctx, user)
+    survivor = await new_bill(ctx, user, title="Keep me")
+    foreign = await person(ctx, other, "Foreign")
+    url = f"/api/people/{ids['B']}?permanent=true"
+    before = (await ctx.client.get(f"/api/bills/{bill['id']}", headers=user.headers)).json()
+    response = await ctx.client.delete(url, headers=user.headers)
+    assert response.status_code == 409 and response.json()["code"] == "person_referenced"
+    assert response.json()["bill_count"] == 1
+    assert (await ctx.client.get(f"/api/bills/{bill['id']}", headers=user.headers)).json() == before
+    await ctx.client.delete(f"/api/bills/{bill['id']}", headers=user.headers)
+    assert (await ctx.client.delete(url, headers=user.headers)).status_code == 409
+    assert (await ctx.client.delete(f"/api/people/{foreign}?permanent=true", headers=user.headers)).status_code == 204
+    assert await ctx.sql("SELECT id FROM people WHERE id = :id", id=foreign)
+    for _ in range(2):
+        response = await ctx.client.delete("/api/bills", headers=user.headers, params={
+            "permanent": "true", "person_id": ids["B"], "confirmation": "DELETE ASSOCIATED BILLS",
+        })
+        assert response.status_code == 204, response.text
+    assert (await ctx.client.get(f"/api/bills/{survivor['id']}", headers=user.headers)).status_code == 200
+    assert await ctx.sql("SELECT title, payer_person_id FROM bills WHERE id = :id", id=bill["id"]) == [(None, None)]
+    for _ in range(2):
+        assert (await ctx.client.delete(url, headers=user.headers)).status_code == 204
+    assert await ctx.sql("SELECT id FROM people WHERE id = :id", id=ids["B"]) == []
+    response = await ctx.client.delete(f"/api/people/{user.self_person_id}?permanent=true", headers=user.headers)
+    assert response.status_code == 409 and response.json()["code"] == "cannot_delete_self"
+
+
+async def test_clear_people_atomic_includes_archived_and_preserves_self(ctx: Ctx) -> None:
+    user, other = await ctx.user(), await ctx.user("other")
+    bill, ids = await full_bill(ctx, user)
+    unused = await person(ctx, user, "Unused")
+    foreign = await person(ctx, other, "Foreign")
+    await ctx.client.delete(f"/api/people/{unused}", headers=user.headers)
+    assert (await ctx.client.delete("/api/people?permanent=true", headers=user.headers)).status_code == 422
+    params = {"permanent": "true", "confirmation": "DELETE ALL PEOPLE"}
+    response = await ctx.client.delete("/api/people", headers=user.headers, params=params)
+    assert response.status_code == 409 and response.json()["code"] == "person_referenced"
+    assert await ctx.sql("SELECT id FROM people WHERE id = :id", id=unused)
+    response = await ctx.client.delete(f"/api/bills/{bill['id']}?permanent=true", headers=user.headers)
+    assert response.status_code == 204, response.text
+    for _ in range(2):
+        response = await ctx.client.delete("/api/people", headers=user.headers, params=params)
+        assert response.status_code == 204, response.text
+    people = (await ctx.client.get("/api/people?include_archived=true", headers=user.headers)).json()["items"]
+    assert [p["id"] for p in people] == [str(user.self_person_id)]
+    assert await ctx.sql("SELECT id FROM people WHERE id = :id", id=foreign)
+
+
+async def test_clear_bills_all_pages_confirmation_and_isolation(ctx: Ctx) -> None:
+    user, other = await ctx.user(), await ctx.user("other")
+    bills = [await new_bill(ctx, user, title=f"Delete {index}") for index in range(23)]
+    survivor = await new_bill(ctx, other)
+    assert (await ctx.client.delete("/api/bills", headers=user.headers)).status_code == 422
+    assert (await ctx.client.get("/api/bills", headers=user.headers)).json()["next_cursor"]
+    for _ in range(2):
+        response = await ctx.client.delete("/api/bills", headers=user.headers,
+                                           params={"confirmation": "DELETE ALL BILLS"})
+        assert response.status_code == 204, response.text
+        assert (await ctx.client.get("/api/bills", headers=user.headers)).json()["items"] == []
+    assert (await ctx.client.get(f"/api/bills/{survivor['id']}", headers=other.headers)).status_code == 200
+    assert (await ctx.client.delete(f"/api/bills/{survivor['id']}", headers=user.headers)).status_code == 404
+    assert (await ctx.client.delete(f"/api/bills/{bills[0]['id']}", headers=user.headers)).status_code == 204
+
+
 async def test_create_bill_defaults_owner_as_participant_and_payer(ctx: Ctx) -> None:
     user = await ctx.user(currency="MYR")
     bill = await new_bill(ctx, user, title="Lunch")
@@ -279,6 +391,141 @@ async def test_list_bills_pagination_and_filter(ctx: Ctx) -> None:
     assert (await ctx.client.get("/api/bills?limit=1000", headers=user.headers)).status_code == 422
 
 
+@pytest.mark.parametrize("settled", [True, False])
+async def test_list_bills_settled_filter_sparse_pagination(ctx: Ctx, settled: bool) -> None:
+    user = await ctx.user()
+    friend = await person(ctx, user, "Bob")
+    matches = {1, 4, 6}
+    for index in range(9):
+        bill = await new_bill(ctx, user, title=f"Bill {index}", source="quick")
+        url = f"/api/bills/{bill['id']}"
+        response = await ctx.client.put(f"{url}/quick", headers=user.headers, json={
+            "total_cents": 1000, "participants": [
+                {"person_id": str(user.self_person_id)}, {"person_id": friend},
+            ],
+        })
+        assert response.status_code == 200, response.text
+        await ctx.client.patch(url, headers=user.headers, json={"status": "complete"})
+        if (index in matches) == settled:
+            await ctx.client.post(f"{url}/participants/{friend}/settlement", headers=user.headers)
+    await new_bill(ctx, user, title="Draft")
+    query = {"limit": 2, "settled": str(settled).lower()}
+    response = await ctx.client.get("/api/bills", headers=user.headers, params=query)
+    assert response.status_code == 200, response.text
+    page1 = response.json()
+    assert [bill["title"] for bill in page1["items"]] == ["Bill 6", "Bill 4"]
+    assert page1["next_cursor"] is not None
+    page2 = (await ctx.client.get("/api/bills", headers=user.headers,
+                                 params={**query, "cursor": page1["next_cursor"]})).json()
+    assert [bill["title"] for bill in page2["items"]] == ["Bill 1"]
+    assert page2["next_cursor"] is None
+    empty = (await ctx.client.get("/api/bills", headers=user.headers,
+                                 params={**query, "status": "draft,review"})).json()
+    assert empty == {"items": [], "next_cursor": None}
+
+
+@pytest.mark.parametrize("payment", [None, 0, 500, 2000])
+async def test_list_bills_settled_filter_uses_outstanding_money(ctx: Ctx, payment: int | None) -> None:
+    user = await ctx.user()
+    friend = await person(ctx, user, "Bob")
+    bill = await new_bill(ctx, user, source="quick")
+    url = f"/api/bills/{bill['id']}"
+    response = await ctx.client.put(f"{url}/quick", headers=user.headers, json={
+        "total_cents": 3000, "mode": "shares", "participants": [
+            {"person_id": str(user.self_person_id), "weight": 1},
+            {"person_id": friend, "weight": 2},
+        ],
+    })
+    assert response.status_code == 200, response.text
+    await ctx.client.patch(url, headers=user.headers, json={"status": "complete"})
+    if payment is not None:
+        response = await ctx.client.post(f"{url}/participants/{friend}/settlement", headers=user.headers,
+                                         json={"amount_cents": payment})
+        assert response.status_code == 200, response.text
+    for settled in (True, False):
+        response = await ctx.client.get("/api/bills", headers=user.headers,
+                                        params={"settled": str(settled).lower(), "status": "draft,complete"})
+        assert response.status_code == 200, response.text
+        expected = payment == 2000
+        assert [row["id"] for row in response.json()["items"]] == ([bill["id"]] if settled == expected else [])
+        assert response.json()["next_cursor"] is None
+    assert (await ctx.client.get("/api/bills?settled=invalid", headers=user.headers)).status_code == 422
+    assert (await ctx.client.get("/api/bills?settled=false&cursor=invalid", headers=user.headers)).status_code == 400
+
+
+@pytest.mark.parametrize("paid_before", [False, True])
+async def test_list_bills_zero_weight_is_even_with_or_without_payment(ctx: Ctx, paid_before: bool) -> None:
+    user = await ctx.user()
+    friend = await person(ctx, user, "Bob")
+    bill = await new_bill(ctx, user, source="quick")
+    url = f"/api/bills/{bill['id']}"
+    body = {"total_cents": 3000, "mode": "shares", "participants": [
+        {"person_id": str(user.self_person_id), "weight": 1}, {"person_id": friend, "weight": 1},
+    ]}
+    await ctx.client.put(f"{url}/quick", headers=user.headers, json=body)
+    if paid_before:
+        await ctx.client.post(f"{url}/participants/{friend}/settlement", headers=user.headers)
+    body["participants"][1]["weight"] = 0
+    response = await ctx.client.put(f"{url}/quick", headers=user.headers, json=body)
+    assert response.status_code == 200, response.text
+    friend_split = response.json()["split"]["people"][1]
+    assert friend_split["outstanding_cents"] == 0
+    assert bool(friend_split["settled_at"]) == paid_before
+    await ctx.client.patch(url, headers=user.headers, json={"status": "complete"})
+    even = (await ctx.client.get("/api/bills?settled=true", headers=user.headers)).json()
+    assert [row["id"] for row in even["items"]] == [bill["id"]]
+    assert even["items"][0]["unsettled_count"] == 0
+    assert (await ctx.client.get("/api/bills?settled=false", headers=user.headers)).json()["items"] == []
+
+
+async def test_list_bills_no_payer_uses_split_outstanding_and_owner_isolation(ctx: Ctx) -> None:
+    user = await ctx.user()
+    outsider = await ctx.user("mallory")
+    friend = await person(ctx, user, "Bob")
+    bill = await new_bill(ctx, user, source="quick")
+    url = f"/api/bills/{bill['id']}"
+    await ctx.client.put(f"{url}/quick", headers=user.headers, json={
+        "total_cents": 1000, "participants": [{"person_id": friend}],
+    })
+    response = await ctx.client.patch(url, headers=user.headers,
+                                      json={"status": "complete", "payer_person_id": None})
+    assert response.status_code == 200, response.text
+    assert response.json()["split"]["payer_person_id"] is None
+    assert response.json()["split"]["outstanding_total_cents"] == 1000
+    open_bills = (await ctx.client.get("/api/bills?settled=false", headers=user.headers)).json()["items"]
+    assert [row["id"] for row in open_bills] == [bill["id"]]
+    assert open_bills[0]["unsettled_count"] == 1 and open_bills[0]["participant_names"] == ["Bob"]
+    for settled in ("true", "false"):
+        assert (await ctx.client.get(f"/api/bills?settled={settled}", headers=outsider.headers)).json()["items"] == []
+
+
+async def test_list_bills_progress_and_names_match_shared_detail(ctx: Ctx) -> None:
+    user = await ctx.user()
+    draft = await new_bill(ctx, user)
+    listed = (await ctx.client.get("/api/bills", headers=user.headers)).json()["items"][0]
+    assert listed["id"] == draft["id"] and listed["participant_names"] == ["You"]
+    assert listed["unassigned_item_count"] == listed["price_issue_count"] == listed["validation_issue_count"] == 0
+    bill, ids = await full_bill(ctx, user)
+    url = f"/api/bills/{bill['id']}"
+    body = {**RECEIPT, "grand_total_cents": 5000, "items": [
+        {**item, "id": stored["id"]} for item, stored in zip(RECEIPT["items"], bill["items"], strict=True)
+    ]}
+    body["items"][0]["quantity"] = 3
+    response = await ctx.client.put(f"{url}/receipt", headers=user.headers, json=body)
+    assert response.status_code == 200, response.text
+    response = await ctx.client.put(f"{url}/assignments", headers=user.headers, json={"assignments": [
+        {"item_id": item["id"], "mode": None} for item in bill["items"][:2]
+    ]})
+    assert response.status_code == 200, response.text
+    detail = response.json()
+    listed = (await ctx.client.get("/api/bills", headers=user.headers)).json()["items"][0]
+    assert listed["participant_names"] == ["You", "Friend B", "Friend C", "Friend D"]
+    assert listed["participant_count"] == len(ids)
+    assert listed["unassigned_item_count"] == len(detail["split"]["unassigned_item_ids"]) == 2
+    assert listed["price_issue_count"] == len(detail["validation"]["warnings"]) == 1
+    assert listed["validation_issue_count"] == len(detail["validation"]["errors"]) == 1
+
+
 async def test_delete_bill_is_soft_and_revokes_share_links(ctx: Ctx) -> None:
     user = await ctx.user()
     bill = await new_bill(ctx, user)
@@ -331,6 +578,40 @@ async def test_settle_and_unsettle(ctx: Ctx) -> None:
     assert b3["settled_at"] is None and b3["outstanding_cents"] == 1276
     stranger = await person(ctx, user, "Nobody")
     assert (await ctx.client.post(f"{base}/{stranger}/settlement", headers=user.headers)).status_code == 404
+
+
+async def test_partial_payment_stays_in_home_and_bill_list(ctx: Ctx) -> None:
+    user = await ctx.user()
+    friend = await person(ctx, user, "Bob")
+    bill = await new_bill(ctx, user, source="quick", currency="SGD")
+    url = f"/api/bills/{bill['id']}"
+    response = await ctx.client.put(f"{url}/quick", headers=user.headers, json={
+        "total_cents": 3000, "mode": "shares", "participants": [
+            {"person_id": str(user.self_person_id), "weight": "1"},
+            {"person_id": friend, "weight": "2"},
+        ],
+    })
+    assert response.status_code == 200, response.text
+    await ctx.client.patch(url, headers=user.headers, json={"status": "complete"})
+    await ctx.client.post(f"{url}/participants/{friend}/settlement", headers=user.headers,
+                          json={"amount_cents": 500})
+    summary = (await ctx.client.get("/api/me/summary", headers=user.headers)).json()
+    assert summary["home"]["owed_to_me_cents"] == 1500
+    assert summary["bills"][0]["bill_id"] == bill["id"]
+    assert summary["bills"][0]["unsettled_people"] == 1
+    listed = (await ctx.client.get("/api/bills", headers=user.headers)).json()["items"]
+    assert listed[0]["unsettled_count"] == 1
+    await ctx.client.post(f"{url}/participants/{friend}/settlement", headers=user.headers)
+    assert (await ctx.client.get("/api/me/summary", headers=user.headers)).json()["home"]["owed_to_me_cents"] == 0
+    assert (await ctx.client.get("/api/bills", headers=user.headers)).json()["items"][0]["unsettled_count"] == 0
+    await ctx.client.put(f"{url}/quick", headers=user.headers, json={
+        "total_cents": 4500, "mode": "shares", "participants": [
+            {"person_id": str(user.self_person_id), "weight": "1"},
+            {"person_id": friend, "weight": "2"},
+        ],
+    })
+    assert (await ctx.client.get("/api/me/summary", headers=user.headers)).json()["home"]["owed_to_me_cents"] == 1000
+    assert (await ctx.client.get("/api/bills", headers=user.headers)).json()["items"][0]["unsettled_count"] == 1
 
 
 async def test_summary_owed_and_owing(ctx: Ctx) -> None:

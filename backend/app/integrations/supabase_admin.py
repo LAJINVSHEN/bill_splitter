@@ -136,6 +136,7 @@ class FakeSupabaseAdmin:
         self.users.setdefault(user_id, {"email": "", "password": ""})["banned"] = disabled
 
     async def delete_user(self, user_id: uuid.UUID) -> None:
+        self._maybe_fail()
         self.users.pop(user_id, None)
 
     async def find_user_by_email(self, email: str) -> AuthUser | None:

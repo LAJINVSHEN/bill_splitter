@@ -1,0 +1,28 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "Item A", "quantity": 1, "unit_price": 18.00, "total_price": 18.00},
+    {"name": "Item B", "quantity": 1, "unit_price": 18.00, "total_price": 18.00}
+  ],
+  "subtotal": 36.00,
+  "taxes_or_charges": [
+    {"name": "SST 6%", "amount": 2.16},
+    {"name": "Service Charge 10%", "amount": 3.60},
+    {"name": "Rounding", "amount": -0.01}
+  ],
+  "grand_total": 41.75,
+  "payment_method": "Unknown",
+  "currency": "MYR",
+  "_expect": {
+    "tax_scenario": "tax_exclusive",
+    "warnings": 0,
+    "items_count": 2,
+    "items_total_cents": 3600,
+    "charges_total_cents": 575,
+    "grand_total_cents": 4175,
+    "coverage": "Two adjudicated priced lines. SST and service are each based on 36.00 and appear again in the summary; do not charge them twice. Preserve negative 0.01 rounding. Single-photo OCR."
+  }
+}

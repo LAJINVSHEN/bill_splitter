@@ -1,0 +1,30 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "Item A", "quantity": 1, "unit_price": 25.00, "total_price": 25.00},
+    {"name": "Item B", "quantity": 1, "unit_price": 17.00, "total_price": 17.00},
+    {"name": "Item C", "quantity": 1, "unit_price": 27.00, "total_price": 27.00},
+    {"name": "Item D", "quantity": 1, "unit_price": 19.00, "total_price": 19.00},
+    {"name": "Item E", "quantity": 1, "unit_price": 17.00, "total_price": 17.00}
+  ],
+  "subtotal": 105.00,
+  "taxes_or_charges": [
+    {"name": "Service Charge 10%", "amount": 10.50},
+    {"name": "GST 9%", "amount": 10.40}
+  ],
+  "grand_total": 125.90,
+  "payment_method": "Unknown",
+  "currency": "SGD",
+  "_expect": {
+    "tax_scenario": "tax_exclusive",
+    "warnings": 0,
+    "items_count": 5,
+    "items_total_cents": 10500,
+    "charges_total_cents": 2090,
+    "grand_total_cents": 12590,
+    "coverage": "Five adjudicated priced lines in header-style table cells. GST follows service; merged total/payment cells contain the same payable amount twice, not two charges. Single-photo OCR."
+  }
+}

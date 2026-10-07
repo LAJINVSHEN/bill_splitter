@@ -27,3 +27,25 @@ export async function expectNoHorizontalOverflow(page: Page) {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow, 'page scrolls sideways').toBeLessThanOrEqual(0)
 }
+
+export async function foregroundJson<T>(page: Page, path: string, method: 'GET' | 'DELETE' = 'GET') {
+  return page.evaluate(async ({ path, method }) => {
+    const modulePath = '/src/lib/env.ts'
+    const { env } = await import(modulePath)
+    const root = new URL(`${env.apiUrl}/api/`, location.origin)
+    if (env.authMode !== 'dev' || !['localhost', '127.0.0.1'].includes(root.hostname)) {
+      throw new Error('Foreground E2E requests require the local dev API.')
+    }
+    const raw = localStorage.getItem('even.dev-session')
+    const session = raw ? JSON.parse(raw) : null
+    if (!session?.access_token) throw new Error('Local dev session is missing.')
+    const response = await fetch(new URL(path.replace(/^\//, ''), root), {
+      method,
+      headers: { Accept: 'application/json', Authorization: `Bearer ${session.access_token}` },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(15_000),
+    })
+    const data = response.status === 204 ? null : await response.json()
+    return { status: response.status, data }
+  }, { path, method }) as Promise<{ status: number; data: T }>
+}

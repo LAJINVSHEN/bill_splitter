@@ -110,15 +110,39 @@ export function useUpdatePerson() {
   })
 }
 
+export function useDeletePerson() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: UUID) => api<void>(`/people/${id}?permanent=true`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      await qc.cancelQueries({ queryKey: qk.people })
+      await qc.invalidateQueries({ queryKey: qk.people })
+    },
+  })
+}
+
+export function useClearPeople() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ permanent = true }: { permanent?: boolean }) =>
+      api<void>(`/people?permanent=${permanent}&confirmation=DELETE%20ALL%20PEOPLE`, { method: 'DELETE' }),
+    onSuccess: async () => {
+      await qc.cancelQueries({ queryKey: qk.people })
+      await qc.invalidateQueries({ queryKey: qk.people })
+    },
+  })
+}
+
 // ---- bills ---------------------------------------------------------------------------------------
-export function useBills(statuses?: BillStatus[], limit = 20) {
+export function useBills(statuses?: BillStatus[], limit = 20, settled?: boolean) {
   const key = statuses?.join(',')
   return useInfiniteQuery({
-    queryKey: qk.bills(key),
+    queryKey: [...qk.bills(key), limit, settled ?? null],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({ limit: String(limit) })
       if (key) params.set('status', key)
+      if (settled !== undefined) params.set('settled', String(settled))
       if (pageParam) params.set('cursor', pageParam)
       return api<Page<BillSummaryOut>>(`/bills?${params}`)
     },
@@ -174,11 +198,48 @@ export const usePatchBill = (billId: UUID) =>
 export function useDeleteBill() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (billId: UUID) => api<void>(`/bills/${billId}`, { method: 'DELETE' }),
-    onSuccess: (_v, billId) => {
+    mutationFn: (input: UUID | { id: UUID; permanent?: boolean }) => {
+      const { id, permanent = false } = typeof input === 'string' ? { id: input } : input
+      return api<void>(`/bills/${id}?permanent=${permanent}`, { method: 'DELETE' })
+    },
+    onSuccess: async (_v, input) => {
+      const billId = typeof input === 'string' ? input : input.id
+      await qc.cancelQueries({ queryKey: qk.bill(billId) })
       qc.removeQueries({ queryKey: qk.bill(billId) })
-      void qc.invalidateQueries({ queryKey: qk.billsAll })
-      void qc.invalidateQueries({ queryKey: qk.summary })
+      await qc.cancelQueries({ queryKey: ['job'] })
+      qc.removeQueries({ queryKey: ['job'] })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: qk.billsAll }),
+        qc.invalidateQueries({ queryKey: qk.summary }),
+        qc.invalidateQueries({ queryKey: qk.usage }),
+      ])
+    },
+  })
+}
+
+export function useClearBills() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ personId, permanent = true }: { personId?: UUID; permanent?: boolean }) => {
+      const params = new URLSearchParams({
+        permanent: String(permanent),
+        confirmation: personId ? 'DELETE ASSOCIATED BILLS' : 'DELETE ALL BILLS',
+      })
+      if (personId) params.set('person_id', personId)
+      return api<void>(`/bills?${params}`, { method: 'DELETE' })
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        qc.cancelQueries({ queryKey: ['bill'] }),
+        qc.cancelQueries({ queryKey: ['job'] }),
+      ])
+      qc.removeQueries({ queryKey: ['bill'] })
+      qc.removeQueries({ queryKey: ['job'] })
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: qk.billsAll }),
+        qc.invalidateQueries({ queryKey: qk.summary }),
+        qc.invalidateQueries({ queryKey: qk.usage }),
+      ])
     },
   })
 }
@@ -214,6 +275,39 @@ export const usePutQuick = (billId: UUID) =>
       api<BillOut>(`/bills/${billId}/quick`, { method: 'PUT', body }),
   )
 
+export interface QuickSplitVars {
+  /** omit to create the bill now (never an empty draft) */
+  billId?: UUID
+  currency: string
+  /** the bill's currency before this save; a change relabels first */
+  previousCurrency?: string
+  total_cents: number
+  mode: 'equal' | 'shares'
+  participants: Array<{ person_id: UUID; weight?: string }>
+  title?: string
+  /** remember a freshly created bill so a retry continues it instead of making another */
+  onCreated?: (billId: UUID) => void
+}
+
+/** Quick split in one action: (create) → (currency) → PUT /quick → complete. Returns the final bill. */
+export function useQuickSplit() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async ({ billId, currency, previousCurrency, total_cents, mode, participants, title, onCreated }: QuickSplitVars) => {
+      let id = billId
+      if (!id) {
+        id = (await api<BillOut>('/bills', { method: 'POST', body: { source: 'quick', currency, ...(title ? { title } : {}) } })).id
+        onCreated?.(id)
+      } else if (previousCurrency && previousCurrency !== currency) {
+        await api<BillOut>(`/bills/${id}`, { method: 'PATCH', body: { currency } })
+      }
+      await api<BillOut>(`/bills/${id}/quick`, { method: 'PUT', body: { total_cents, mode, participants, ...(title ? { title } : {}) } })
+      return api<BillOut>(`/bills/${id}`, { method: 'PATCH', body: { status: 'complete' } })
+    },
+    onSuccess: (bill) => applyBill(qc, bill),
+  })
+}
+
 export const useSettle = (billId: UUID) =>
   useBillMutation(billId, ({ personId, amount_cents }: { personId: UUID; amount_cents?: number }) =>
     api<BillOut>(`/bills/${billId}/participants/${personId}/settlement`, {
@@ -245,6 +339,43 @@ export function useStartScan(billId: UUID) {
     },
   })
 }
+
+/**
+ * Like useStartScan, for when the bill is created in the same action (New bill → Start).
+ * Pass the same idempotencyKey when retrying after a network error: the server replays, never double-bills.
+ */
+export function useUploadScan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ billId, files, idempotencyKey }: { billId: UUID; files: File[]; idempotencyKey: string }) => {
+      const form = new FormData()
+      files.forEach((f) => form.append('files', f, f.name))
+      return api<{ job_id: UUID; status: JobStatus; replayed: boolean }>(`/bills/${billId}/scans`, {
+        method: 'POST',
+        form,
+        idempotencyKey,
+        timeoutMs: 120_000,
+      })
+    },
+    onSuccess: (_r, { billId }) => {
+      void qc.invalidateQueries({ queryKey: qk.bill(billId) })
+      void qc.invalidateQueries({ queryKey: qk.billsAll })
+      void qc.invalidateQueries({ queryKey: qk.usage })
+    },
+    onError: () => qc.invalidateQueries({ queryKey: qk.usage }),
+  })
+}
+
+/** Short-lived signed URL for a receipt photo; refreshed before it expires (300 s). */
+export const useFileUrl = (billId: UUID, fileId: UUID | undefined, enabled = true) =>
+  useQuery({
+    queryKey: ['receipt-file', billId, fileId ?? ''] as const,
+    queryFn: () => fileUrl(billId, fileId as UUID),
+    enabled: enabled && Boolean(fileId),
+    staleTime: 240_000,
+    gcTime: 270_000,
+    retry: (count, err) => count < 1 && !(err instanceof Error && 'status' in err && (err as { status: number }).status < 500),
+  })
 
 export function useJob(jobId: UUID | null | undefined) {
   return useQuery({
@@ -339,6 +470,19 @@ export function useUpdateUser() {
 
 export const useResetPassword = () =>
   useMutation({ mutationFn: (id: UUID) => api<{ temp_password: string }>(`/admin/users/${id}/reset-password`, { method: 'POST' }) })
+
+export function useDeleteAdminUser() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: UUID) => api<void>(`/admin/users/${id}`, { method: 'DELETE' }),
+    onSettled: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: qk.adminUsers }),
+        qc.invalidateQueries({ queryKey: ['admin', 'usage'] }),
+      ])
+    },
+  })
+}
 
 export function useUpdateSettings() {
   const qc = useQueryClient()

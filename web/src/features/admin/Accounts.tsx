@@ -3,7 +3,8 @@ import { Button } from '@/components/Button'
 import { Meter, Notice } from '@/components/Display'
 import { SelectField, TextField } from '@/components/Field'
 import { Dialog, useToast } from '@/components/Feedback'
-import { useResetPassword, useUpdateUser } from '@/data/queries'
+import { Icon } from '@/components/Icon'
+import { useDeleteAdminUser, useMe, useResetPassword, useUpdateUser } from '@/data/queries'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import type { AdminUsageOut, AdminUserOut } from '@/lib/types'
@@ -127,6 +128,8 @@ const SELF_ERRORS: Record<string, string> = {
 export function EditUserDialog({ user, onClose }: { user: AdminUserOut; onClose: () => void }) {
   const update = useUpdateUser()
   const reset = useResetPassword()
+  const deletion = useDeleteAdminUser()
+  const { data: me } = useMe()
   const toast = useToast()
   const [name, setName] = useState(user.display_name)
   const [role, setRole] = useState(user.role)
@@ -135,9 +138,27 @@ export function EditUserDialog({ user, onClose }: { user: AdminUserOut; onClose:
   const [errors, setErrors] = useState<{ name?: string; quota?: string; form?: string }>({})
   const [confirmReset, setConfirmReset] = useState(false)
   const [tempPassword, setTempPassword] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmation, setConfirmation] = useState('')
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const isSelf = me?.id === user.id
+  const busy = update.isPending || reset.isPending || deletion.isPending
+
+  async function doDelete() {
+    if (confirmation !== user.username || !me || isSelf || busy) return
+    setDeleteError(null)
+    try {
+      await deletion.mutateAsync(user.id)
+      toast(`@${user.username} deleted`)
+      onClose()
+    } catch (err) {
+      setDeleteError(err instanceof ApiError ? err.message : 'Could not delete the account. Try again.')
+    }
+  }
 
   async function save(e: FormEvent) {
     e.preventDefault()
+    if (busy) return
     const clean = name.trim().replace(/\s+/g, ' ')
     const q = parseCount(quota, 0, 10_000)
     const next: typeof errors = {}
@@ -162,6 +183,7 @@ export function EditUserDialog({ user, onClose }: { user: AdminUserOut; onClose:
   }
 
   async function doReset() {
+    if (busy) return
     try {
       const res = await reset.mutateAsync(user.id)
       setTempPassword(res.temp_password)
@@ -171,13 +193,45 @@ export function EditUserDialog({ user, onClose }: { user: AdminUserOut; onClose:
     }
   }
 
+  if (confirmDelete) {
+    return (
+      <Dialog
+        open
+        onClose={() => { if (!deletion.isPending) setConfirmDelete(false) }}
+        title={`Delete @${user.username}?`}
+        footer={
+          <>
+            <Button variant="secondary" disabled={deletion.isPending} onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button
+              variant="danger"
+              icon={<Icon name={deleteError ? 'retry' : 'trash'} />}
+              disabled={confirmation !== user.username || !me || isSelf}
+              loading={deletion.isPending}
+              onClick={() => void doDelete()}
+            >
+              {deleteError ? 'Retry delete account' : 'Delete account'}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p className="text-base">Permanently deletes their bills and saved people, revokes share links, removes receipt photos and removes their login.</p>
+          <p className="text-[15px] text-ink-2">Usage quota history remains anonymous and still counts toward the global Azure and OpenAI limits.</p>
+          {deleteError && <Notice tone="danger">{deleteError}</Notice>}
+          <TextField label="Confirm username" value={confirmation} disabled={deletion.isPending} autoComplete="off" onChange={(e) => setConfirmation(e.target.value)} />
+          <p className="text-[15px] font-semibold">@{user.username}</p>
+        </div>
+      </Dialog>
+    )
+  }
+
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={() => { if (!busy) onClose() }}
       title={`Edit ${user.display_name}`}
       footer={
-        <Button type="submit" form="edit-user" loading={update.isPending}>
+        <Button type="submit" form="edit-user" disabled={busy} loading={update.isPending}>
           Save
         </Button>
       }
@@ -207,16 +261,25 @@ export function EditUserDialog({ user, onClose }: { user: AdminUserOut; onClose:
         ) : confirmReset ? (
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="flex-1 text-[15px] font-semibold">Their current password stops working.</span>
-            <Button variant="secondary" onClick={() => setConfirmReset(false)}>
+            <Button variant="secondary" disabled={busy} onClick={() => setConfirmReset(false)}>
               Cancel
             </Button>
-            <Button variant="danger" className="px-3" loading={reset.isPending} onClick={() => void doReset()}>
+            <Button variant="danger" className="px-3" disabled={busy} loading={reset.isPending} onClick={() => void doReset()}>
               Reset
             </Button>
           </div>
         ) : (
-          <Button variant="secondary" className="self-start" onClick={() => setConfirmReset(true)}>
+          <Button variant="secondary" className="self-start" disabled={busy} onClick={() => setConfirmReset(true)}>
             Reset password
+          </Button>
+        )}
+      </div>
+      <div className="mt-5 border-t border-rule pt-3">
+        {isSelf ? (
+          <p className="text-[15px] text-ink-2">You cannot delete your own account.</p>
+        ) : (
+          <Button variant="danger" icon={<Icon name="trash" />} disabled={!me || busy} onClick={() => setConfirmDelete(true)}>
+            Delete account
           </Button>
         )}
       </div>

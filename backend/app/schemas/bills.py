@@ -314,6 +314,10 @@ class BillSummaryOut(OutputModel):
     settle_currency: str | None
     participant_count: int
     unsettled_count: int
+    participant_names: list[str] = Field(default_factory=list)
+    unassigned_item_count: int = 0
+    price_issue_count: int = 0
+    validation_issue_count: int = 0
     created_at: datetime
     updated_at: datetime
 

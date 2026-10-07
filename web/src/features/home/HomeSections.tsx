@@ -19,6 +19,8 @@ export function OwedHero({ summary }: { summary: SummaryOut }) {
   const home = summary.home
   const others = summary.currencies.filter((c) => c.currency !== home.currency && c.owed_to_me_cents !== 0)
   const firstOther = others[0]?.currency
+  const otherBills = summary.bills.filter((bill) => bill.currency === firstOther && bill.owed_to_me_cents > 0)
+  const singleOtherBill = otherBills.length === 1 ? otherBills[0] : undefined
   const iOwe = summary.currencies.filter((c) => c.i_owe_cents !== 0)
   const allEven = home.owed_to_me_cents === 0 && others.length === 0 && iOwe.length === 0
 
@@ -48,9 +50,9 @@ export function OwedHero({ summary }: { summary: SummaryOut }) {
               <Money minor={c.owed_to_me_cents} currency={c.currency} code className="font-bold text-warn" />
             </span>
           ))}{' '}
-          without a rate ·{' '}
-          <Link to={`/account?rate=${firstOther}`} className="font-semibold text-cobalt hover:text-cobalt-ink">
-            Add {firstOther} rate
+          ·{' '}
+          <Link to={singleOtherBill ? `/bills/${singleOtherBill.bill_id}` : '/bills?show=open'} className="font-semibold text-cobalt hover:text-cobalt-ink">
+            Open {firstOther} {singleOtherBill ? 'bill' : 'bills'}
           </Link>
         </p>
       )}

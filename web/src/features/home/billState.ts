@@ -10,18 +10,25 @@ export interface ProgressState {
   action: 'Resume' | 'Open'
 }
 
-/**
- * What an unfinished bill is waiting on, from what the list endpoint gives us (status + source).
- * Counts like "2 prices to check" need fields BillSummaryOut doesn't carry yet (see handover).
- */
-export function progressState(b: Pick<BillSummaryOut, 'status' | 'source'>): ProgressState {
+export function progressState(b: Pick<BillSummaryOut, 'status' | 'source' | 'unassigned_item_count' | 'price_issue_count' | 'validation_issue_count'>): ProgressState {
+  if (b.status !== 'scanning' && b.status !== 'complete') {
+    const labels: string[] = []
+    if (b.price_issue_count) labels.push(`${b.price_issue_count} ${b.price_issue_count === 1 ? 'price' : 'prices'} to check`)
+    if (b.validation_issue_count) labels.push(`${b.validation_issue_count} receipt ${b.validation_issue_count === 1 ? 'issue' : 'issues'}`)
+    if (b.unassigned_item_count) labels.push(`${b.unassigned_item_count} ${b.unassigned_item_count === 1 ? 'item' : 'items'} unassigned`)
+    if (labels.length) return { label: labels.join(' · '), tone: 'warn', action: 'Resume' }
+  }
   switch (b.status) {
     case 'scanning':
       return { label: 'Reading receipt…', tone: 'quiet', action: 'Open' }
     case 'review':
-      return { label: 'Prices to check', tone: 'warn', action: 'Resume' }
+      return b.price_issue_count === undefined && b.validation_issue_count === undefined
+        ? { label: 'Prices to check', tone: 'warn', action: 'Resume' }
+        : { label: 'Review receipt', tone: 'quiet', action: 'Resume' }
     case 'assigning':
-      return { label: 'Items to assign', tone: 'warn', action: 'Resume' }
+      return b.unassigned_item_count === undefined
+        ? { label: 'Items to assign', tone: 'warn', action: 'Resume' }
+        : { label: 'Ready to finish', tone: 'quiet', action: 'Resume' }
     case 'draft':
       if (b.source === 'quick') return { label: 'Add the total', tone: 'quiet', action: 'Resume' }
       if (b.source === 'scan') return { label: 'Add a receipt', tone: 'quiet', action: 'Resume' }
@@ -32,16 +39,14 @@ export function progressState(b: Pick<BillSummaryOut, 'status' | 'source'>): Pro
 }
 
 /**
- * People still owing on each outstanding bill. /me/summary counts anyone with money outstanding
- * (a partial payment still owes); BillSummaryOut.unsettled_count only counts people never marked,
- * so the summary wins when it knows the bill.
+ * Both summary and list counts derive from outstanding money, including partial payments.
  */
 export function owingIndex(summary: SummaryOut | undefined): Map<UUID, number> {
   return new Map((summary?.bills ?? []).map((b) => [b.bill_id, b.unsettled_people]))
 }
 
 export function owingCount(b: Pick<BillSummaryOut, 'id' | 'unsettled_count'>, index: Map<UUID, number>): number {
-  return index.get(b.id) ?? b.unsettled_count
+  return b.unsettled_count ?? index.get(b.id) ?? 0
 }
 
 export type BillFilter = 'all' | 'open' | 'even' | 'drafts'
@@ -57,16 +62,14 @@ export function parseFilter(value: string | null): BillFilter {
   return BILL_FILTERS.some((f) => f.value === value) ? (value as BillFilter) : 'all'
 }
 
-/** Server-side status filter. Open vs Even both fetch complete bills and split on who still owes. */
 export function filterStatuses(filter: BillFilter): BillStatus[] | undefined {
   if (filter === 'drafts') return IN_PROGRESS
   if (filter === 'open' || filter === 'even') return ['complete']
   return undefined
 }
 
-export function matchesFilter(filter: BillFilter, b: Pick<BillSummaryOut, 'status'>, owing: number): boolean {
-  if (filter === 'open') return b.status === 'complete' && owing > 0
-  if (filter === 'even') return b.status === 'complete' && owing === 0
-  if (filter === 'drafts') return IN_PROGRESS.includes(b.status)
-  return true
+export function filterSettled(filter: BillFilter): boolean | undefined {
+  if (filter === 'open') return false
+  if (filter === 'even') return true
+  return undefined
 }

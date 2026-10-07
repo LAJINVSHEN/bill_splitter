@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/Button'
-import { Avatar, PageTitle } from '@/components/Display'
+import { Avatar, Notice, PageTitle } from '@/components/Display'
 import { TextField } from '@/components/Field'
 import { Dialog, useToast } from '@/components/Feedback'
-import { useCreatePerson, usePeople, useUpdatePerson } from '@/data/queries'
+import { Icon } from '@/components/Icon'
+import { useClearBills, useClearPeople, useCreatePerson, useDeletePerson, usePeople, useUpdatePerson } from '@/data/queries'
 import { LoadError, SectionLoader } from '@/features/home/BillList'
 import { cleanName, HUES, nameError, nearestHue } from '@/features/home/people'
 import { ApiError } from '@/lib/api'
@@ -177,14 +178,99 @@ function AddPerson({ people }: { people: PersonOut[] }) {
   )
 }
 
+function DeletePeople({ target, onClose }: { target: PersonOut | 'all'; onClose: () => void }) {
+  const remove = useDeletePerson()
+  const clear = useClearPeople()
+  const clearBills = useClearBills()
+  const update = useUpdatePerson()
+  const toast = useToast()
+  const [confirmation, setConfirmation] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [conflict, setConflict] = useState(false)
+  const [deletingBills, setDeletingBills] = useState(false)
+  const all = target === 'all'
+  const phrase = deletingBills ? (all ? 'DELETE ALL BILLS' : 'DELETE ASSOCIATED BILLS') : 'DELETE ALL PEOPLE'
+  const busy = remove.isPending || clear.isPending || clearBills.isPending || update.isPending
+
+  async function deletePeople() {
+    if (busy || ((all || deletingBills) && confirmation !== phrase)) return
+    setError(null)
+    try {
+      if (deletingBills) {
+        await clearBills.mutateAsync({ personId: all ? undefined : target.id, permanent: true })
+        toast(all ? 'Bill history cleared' : 'Associated bill history deleted')
+      }
+      if (all) await clear.mutateAsync({ permanent: true })
+      else await remove.mutateAsync(target.id)
+      toast(all ? 'Saved people deleted' : `${target.name} deleted`)
+      onClose()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not delete. Try again.')
+      setConflict(err instanceof ApiError && err.code === 'person_referenced')
+    }
+  }
+
+  async function archive() {
+    if (busy) return
+    setError(null)
+    try {
+      if (all) await clear.mutateAsync({ permanent: false })
+      else await update.mutateAsync({ id: target.id, archived: true })
+      toast(all ? 'Saved people archived' : `${target.name} archived`)
+      onClose()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not archive. Try again.')
+    }
+  }
+
+  return (
+    <Dialog open onClose={() => { if (!busy) onClose() }}
+      title={deletingBills ? 'Delete bill history first?' : all ? 'Delete all saved people?' : 'Delete saved person?'}
+      footer={<>
+        <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
+        <Button variant="danger" icon={<Icon name="trash" size={20} />} loading={remove.isPending || clear.isPending || clearBills.isPending}
+          disabled={busy || ((all || deletingBills) && confirmation !== phrase)} onClick={() => void deletePeople()}>
+          {deletingBills ? 'Delete bills & people' : all ? 'Delete all people' : 'Delete person'}
+        </Button>
+      </>}>
+      <div className="flex flex-col gap-4" aria-busy={busy}>
+        {!all && <p className="break-words font-semibold">{target.name}</p>}
+        {deletingBills ? <>
+          <p>{all ? 'Every bill, draft and previously deleted bill across all pages will be permanently erased.' : 'Every bill that uses this person, including previously deleted bills, will be permanently erased for all its participants.'}</p>
+          <p>Items, splits and payment history cannot be recovered. Share links stop working, scans are cancelled, and photos are queued for deletion. Scan usage still counts toward your quota.</p>
+          <p>{all ? 'Then all saved people, including archived people, will be deleted. Me stays.' : 'Then this saved person will be deleted.'}</p>
+        </> : <>
+          <p>{all ? 'All saved people, including archived people, will be permanently deleted. Me stays.' : 'This saved person will be permanently deleted.'} This cannot be undone.</p>
+          <p>People used by bills cannot be deleted while that history remains.</p>
+        </>}
+        {(all || deletingBills) && <TextField label={`Type ${phrase} to confirm`} value={confirmation} disabled={busy} autoComplete="off" onChange={(event) => setConfirmation(event.target.value)} />}
+        {error && <Notice tone="danger">{error}</Notice>}
+        {conflict && !deletingBills && <Button variant="secondary" disabled={busy} icon={<Icon name="trash" size={20} />}
+          onClick={() => { setDeletingBills(true); setConfirmation(''); setError(null) }}>
+          {all ? 'Delete all bill history first' : 'Delete associated bills first'}
+        </Button>}
+        {!deletingBills && <Button variant="quiet" loading={update.isPending || (clear.isPending && clear.variables?.permanent === false)} disabled={busy} onClick={() => void archive()}>
+          {all ? 'Archive people instead' : 'Archive instead'}
+        </Button>}
+      </div>
+    </Dialog>
+  )
+}
+
 export default function PeoplePage() {
   const people = usePeople()
   const [editing, setEditing] = useState<PersonOut | null>(null)
+  const [deleting, setDeleting] = useState<PersonOut | 'all' | null>(null)
   const list = people.data ?? []
 
   return (
     <div className="flex flex-col gap-6">
-      <PageTitle>People</PageTitle>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <PageTitle>People</PageTitle>
+        <Button variant="quiet" className="text-danger" icon={<Icon name="trash" size={20} />} onClick={() => setDeleting('all')}>
+          Clear saved people
+        </Button>
+      </div>
       {people.isPending ? (
         <SectionLoader label="Loading people" />
       ) : people.isError ? (
@@ -203,12 +289,16 @@ export default function PeoplePage() {
                 <Button variant="quiet" aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)}>
                   Edit
                 </Button>
+                {!p.is_self && <Button variant="quiet" className="h-11 w-11 shrink-0 p-0 text-danger" aria-label={`Delete ${p.name}`} title={`Delete ${p.name}`} onClick={() => setDeleting(p)}>
+                  <Icon name="trash" size={20} />
+                </Button>}
               </li>
             ))}
           </ul>
         </>
       )}
       {editing && <EditPerson key={editing.id} person={editing} onClose={() => setEditing(null)} />}
+      {deleting && <DeletePeople key={deleting === 'all' ? 'all' : deleting.id} target={deleting} onClose={() => setDeleting(null)} />}
     </div>
   )
 }

@@ -222,7 +222,8 @@ export interface BillOut {
   fx_rate: Dec | null
   effective_currency: string
   currency_locked: boolean
-  detected_currency: string | null
+  /** not sent by the API: read latest_job.detected_currency. Kept optional for compatibility. */
+  detected_currency?: string | null
   status: BillStatus
   source: BillSource
   payer_person_id: UUID | null
@@ -239,7 +240,14 @@ export interface BillOut {
   participants: ParticipantOut[]
   validation: ValidationOut | null
   split: SplitOut
-  latest_job: { id: UUID; status: JobStatus; error_code: string | null; retryable: boolean } | null
+  latest_job: {
+    id: UUID
+    status: JobStatus
+    error_code: string | null
+    retryable: boolean
+    /** receipt currency when it differs from the bill's: offer a one-tap switch */
+    detected_currency?: string | null
+  } | null
   files: FileOut[]
 }
 
@@ -255,6 +263,10 @@ export interface BillSummaryOut {
   settle_currency?: string | null
   participant_count: number
   unsettled_count: number
+  participant_names?: string[]
+  unassigned_item_count?: number
+  price_issue_count?: number
+  validation_issue_count?: number
   created_at: string
   updated_at: string
 }

@@ -3,14 +3,22 @@ and HTTP guardrails (CORS, body size, error envelopes, rate limits), plus schema
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from pathlib import Path
+from unittest.mock import AsyncMock
+from uuid import UUID
 
+import httpx
+import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from fastapi import FastAPI
+from sqlalchemy.exc import IntegrityError
 
 from app.models import Base
+from app.integrations.storage import StorageError
+from app.integrations.supabase_admin import HttpSupabaseAdmin, SupabaseAdminError
 from app.ratelimit import limiter, reset_all
 from tests.conftest import AppUser, Ctx, jpeg
 from tests.test_bills import full_bill
@@ -90,6 +98,211 @@ async def test_public_share_rate_limit(ctx: Ctx) -> None:
 
 
 # ------------------------------------------------------------------------- admin
+async def test_admin_delete_authorization_self_and_repeat(ctx: Ctx) -> None:
+    admin = await ctx.user("root", role="admin")
+    member = await ctx.user()
+    url = f"/api/admin/users/{member.id}"
+    assert (await ctx.client.delete(url)).status_code == 401
+    assert (await ctx.client.delete(url, headers=member.headers)).status_code == 403
+    response = await ctx.client.delete(f"/api/admin/users/{admin.id}", headers=admin.headers)
+    assert response.status_code == 409 and response.json()["code"] == "cannot_delete_self"
+    assert (await ctx.client.delete(url, headers=admin.headers)).status_code == 204
+    assert (await ctx.client.delete(url, headers=admin.headers)).status_code == 204
+    response = await ctx.client.get("/api/me", headers=member.headers)
+    assert response.status_code == 403 and response.json()["code"] == "not_provisioned"
+    assert (await ctx.client.get("/api/me", headers=admin.headers)).status_code == 200
+
+
+async def test_admin_delete_auth_failure_preserves_usable_account(ctx: Ctx) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    bill, _ = await full_bill(ctx, user)
+    scan = (await ctx.client.post("/api/bills", headers=user.headers, json={})).json()
+    await ctx.client.post(f"/api/bills/{scan['id']}/scans", headers=user.headers,
+                          files=[("files", ("a.jpg", jpeg(), "image/jpeg"))])
+    await ctx.drain()
+    path = (await ctx.sql("SELECT storage_path FROM receipt_files"))[0][0]
+    ctx.auth_admin.fail_next = "provider rejected deletion"
+    response = await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)
+    assert response.status_code == 502 and response.json()["code"] == "auth_provider_error"
+    assert (await ctx.client.get("/api/me", headers=user.headers)).status_code == 200
+    assert (await ctx.client.get(f"/api/bills/{bill['id']}", headers=user.headers)).status_code == 200
+    assert await ctx.services.storage.get(path)
+    assert await ctx.sql("SELECT disabled_at FROM profiles WHERE id = :owner", owner=str(user.id)) == [(None,)]
+    assert (await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)).status_code == 204
+
+
+async def test_admin_delete_removes_auth_identity(ctx: Ctx) -> None:
+    admin = await ctx.user("root", role="admin")
+    response = await ctx.client.post("/api/admin/users", headers=admin.headers, json={"username": "charlie"})
+    assert response.status_code == 201
+    user_id = UUID(response.json()["user"]["id"])
+    assert user_id in ctx.auth_admin.users
+    assert (await ctx.client.delete(f"/api/admin/users/{user_id}", headers=admin.headers)).status_code == 204
+    assert user_id not in ctx.auth_admin.users
+    assert (await ctx.client.delete(f"/api/admin/users/{user_id}", headers=admin.headers)).status_code == 204
+
+
+@pytest.mark.parametrize("failure", [SupabaseAdminError("unavailable", 503), httpx.ConnectError("offline")])
+async def test_admin_delete_auth_errors_do_not_touch_storage(ctx: Ctx, monkeypatch, failure) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    remote = AsyncMock(side_effect=failure)
+    cleanup = AsyncMock()
+    monkeypatch.setattr(ctx.auth_admin, "delete_user", remote)
+    monkeypatch.setattr(ctx.services.storage, "delete", cleanup)
+    response = await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)
+    assert response.status_code == 502
+    cleanup.assert_not_awaited()
+    assert (await ctx.client.get("/api/me", headers=user.headers)).status_code == 200
+
+
+async def test_admin_delete_cascades_and_keeps_global_usage(ctx: Ctx) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    survivor = await ctx.user("survivor")
+    bill, _ = await full_bill(ctx, user)
+    link = (await ctx.client.post(f"/api/bills/{bill['id']}/share-links", headers=user.headers)).json()
+    scan = (await ctx.client.post("/api/bills", headers=user.headers, json={})).json()
+    await ctx.client.post(f"/api/bills/{scan['id']}/scans", headers=user.headers,
+                          files=[("files", ("a.jpg", jpeg(), "image/jpeg"))])
+    await ctx.drain()
+    await ctx.client.put("/api/me/fx-rates/JPY/SGD", headers=user.headers, json={"rate": "0.01"})
+    paths = [row[0] for row in await ctx.sql("SELECT storage_path FROM receipt_files")]
+    before = (await ctx.client.get("/api/admin/usage", headers=admin.headers)).json()
+    assert before["totals"]["ocr_pages"] == 1 and before["totals"]["cost_micros"] == 1800
+    assert (await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)).status_code == 204
+    for table in ("bills", "people", "extraction_jobs", "receipt_files", "ocr_cache", "share_links", "fx_rates"):
+        assert await ctx.sql(f"SELECT count(*) FROM {table} WHERE owner_id = :owner", owner=str(user.id)) == [(0,)]
+    for table in ("bill_items", "bill_charges", "bill_participants", "item_shares"):
+        assert await ctx.sql(f"SELECT count(*) FROM {table}") == [(0,)]
+    assert await ctx.sql("SELECT user_id, job_id FROM usage_events") == [(None, None), (None, None)]
+    after = (await ctx.client.get("/api/admin/usage", headers=admin.headers)).json()
+    assert after["totals"] == before["totals"] and after["by_model"] == before["by_model"]
+    assert len(after["by_user"]) == 1
+    assert after["by_user"][0]["user_id"] is None and after["by_user"][0]["username"] is None
+    assert (await ctx.client.get(f"/api/public/share/{link['token']}")).status_code == 404
+    assert (await ctx.client.get("/api/me", headers=survivor.headers)).status_code == 200
+    for path in paths:
+        with pytest.raises(StorageError):
+            await ctx.services.storage.get(path)
+    recreated = await ctx.user()
+    target = (await ctx.client.post("/api/bills", headers=recreated.headers, json={})).json()
+    for limits, code in (({"global_monthly_page_cap": 1}, "quota_global_page_cap"),
+                         ({"global_monthly_page_cap": 450, "global_monthly_llm_budget_micros": 1800},
+                          "quota_llm_budget")):
+        await ctx.client.patch("/api/admin/settings", headers=admin.headers, json=limits)
+        response = await ctx.client.post(f"/api/bills/{target['id']}/scans", headers=recreated.headers,
+                                         files=[("files", ("b.jpg", jpeg(), "image/jpeg"))])
+        assert response.status_code == 429 and response.json()["code"] == code
+    assert ctx.ocr.calls == 1 and len(ctx.llm.calls) == 1
+
+
+async def test_admin_delete_storage_failure_keeps_paths_for_retry(ctx: Ctx, monkeypatch) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    bill = (await ctx.client.post("/api/bills", headers=user.headers, json={})).json()
+    await ctx.client.post(f"/api/bills/{bill['id']}/scans", headers=user.headers,
+                          files=[("files", ("a.jpg", jpeg(), "image/jpeg"))])
+    await ctx.drain()
+    path = (await ctx.sql("SELECT storage_path FROM receipt_files"))[0][0]
+    cleanup = ctx.services.storage.delete
+    monkeypatch.setattr(ctx.services.storage, "delete", AsyncMock(side_effect=StorageError("offline")))
+    response = await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)
+    assert response.status_code == 503 and response.json()["code"] == "account_cleanup_pending"
+    assert await ctx.sql("SELECT storage_path FROM receipt_files") == [(path,)]
+    assert await ctx.services.storage.get(path)
+    assert (await ctx.sql("SELECT disabled_at IS NOT NULL FROM profiles WHERE id = :owner",
+                          owner=str(user.id))) == [(True,)]
+    monkeypatch.setattr(ctx.services.storage, "delete", cleanup)
+    assert (await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)).status_code == 204
+
+
+async def test_admin_delete_cancels_all_owner_jobs_before_storage(ctx: Ctx, monkeypatch) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    ctx.ocr.delay = 60
+    ids = []
+    for _ in range(2):
+        bill = (await ctx.client.post("/api/bills", headers=user.headers, json={})).json()
+        response = await ctx.client.post(f"/api/bills/{bill['id']}/scans", headers=user.headers,
+                                         files=[("files", ("a.jpg", jpeg(), "image/jpeg"))])
+        ids.append(UUID(response.json()["job_id"]))
+    cleanup = ctx.services.storage.delete
+
+    async def checked_cleanup(paths: list[str]) -> None:
+        assert all(not ctx.services.runner.is_running(job_id) for job_id in ids)
+        assert await ctx.sql("SELECT status, pages_reserved, retryable FROM extraction_jobs") == [
+            ("cancelled", 0, False), ("cancelled", 0, False)]
+        await cleanup(paths)
+
+    monkeypatch.setattr(ctx.services.storage, "delete", checked_cleanup)
+    assert (await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)).status_code == 204
+    assert not ctx.services.runner.tasks
+    assert ctx.llm.calls == []
+
+
+async def test_admin_delete_cancellation_timeout_retains_receipts(ctx: Ctx, monkeypatch) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    bill = (await ctx.client.post("/api/bills", headers=user.headers, json={})).json()
+    await ctx.sql("INSERT INTO extraction_jobs (id, bill_id, owner_id, status) "
+                  "VALUES (gen_random_uuid(), :bill, :owner, 'queued')", bill=bill["id"], owner=str(user.id))
+    cleanup = AsyncMock()
+    monkeypatch.setattr(ctx.services.runner, "cancel", AsyncMock(return_value=True))
+    monkeypatch.setattr(ctx.services.runner, "is_running", lambda job_id: True)
+    monkeypatch.setattr(ctx.services.storage, "delete", cleanup)
+    response = await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)
+    assert response.status_code == 503 and response.json()["code"] == "account_cleanup_pending"
+    cleanup.assert_not_awaited()
+    assert await ctx.sql("SELECT count(*) FROM bills WHERE owner_id = :owner", owner=str(user.id)) == [(1,)]
+
+
+async def test_admin_delete_gates_inflight_bill_creation_during_purge(ctx: Ctx, monkeypatch) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    bill = (await ctx.client.post("/api/bills", headers=user.headers, json={})).json()
+    await ctx.client.post(f"/api/bills/{bill['id']}/scans", headers=user.headers,
+                          files=[("files", ("a.jpg", jpeg(), "image/jpeg"))])
+    await ctx.drain()
+    pending = []
+    cleanup = ctx.services.storage.delete
+
+    async def checked_cleanup(paths: list[str]) -> None:
+        writer = asyncio.create_task(ctx.sql(
+            "INSERT INTO bills (id, owner_id, currency) VALUES (gen_random_uuid(), :owner, 'SGD')",
+            owner=str(user.id)))
+        pending.append(writer)
+        done, _ = await asyncio.wait({writer}, timeout=0.1)
+        assert not done
+        await cleanup(paths)
+
+    monkeypatch.setattr(ctx.services.storage, "delete", checked_cleanup)
+    response = await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)
+    assert response.status_code == 204
+    with pytest.raises(IntegrityError):
+        await pending[0]
+    assert await ctx.sql("SELECT count(*) FROM bills WHERE owner_id = :owner", owner=str(user.id)) == [(0,)]
+
+
+async def test_admin_delete_auth_404_cleans_remaining_profile(ctx: Ctx, monkeypatch) -> None:
+    admin = await ctx.user("root", role="admin")
+    user = await ctx.user()
+    monkeypatch.setattr(ctx.auth_admin, "delete_user", AsyncMock(side_effect=SupabaseAdminError("gone", 404)))
+    assert (await ctx.client.delete(f"/api/admin/users/{user.id}", headers=admin.headers)).status_code == 204
+    assert await ctx.sql("SELECT count(*) FROM profiles WHERE id = :owner", owner=str(user.id)) == [(0,)]
+
+
+async def test_http_auth_delete_404_is_idempotent() -> None:
+    remote = HttpSupabaseAdmin("https://auth.invalid", "test-only-not-a-key")
+    await remote.client.aclose()
+    remote.client = httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(404)))
+    try:
+        await remote.delete_user(UUID("00000000-0000-0000-0000-000000000001"))
+    finally:
+        await remote.aclose()
+
+
 async def test_admin_creates_password_user_who_can_then_log_in(ctx: Ctx) -> None:
     admin = await ctx.user("root", role="admin")
     r = await ctx.client.post("/api/admin/users", headers=admin.headers,

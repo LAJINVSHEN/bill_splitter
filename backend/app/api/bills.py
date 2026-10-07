@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Annotated, get_args
+from typing import Annotated, Literal, get_args
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -38,16 +38,28 @@ async def list_bills(
     status: Annotated[str | None, Query(description="Comma-separated statuses, e.g. draft,review")] = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[str | None, Query(max_length=200)] = None,
+    settled: Annotated[bool | None, Query(description="Complete bills with no outstanding balance (true) or an open balance (false)")] = None,
 ) -> Page[BillSummaryOut]:
     statuses = [s.strip() for s in status.split(",") if s.strip()] if status else None
     if statuses and not set(statuses) <= _STATUSES:
         raise BadRequest("invalid_status", f"status must be one of {sorted(_STATUSES)}")
-    return await svc.list_bills(db, user, statuses, limit, cursor)
+    return await svc.list_bills(db, user, statuses, limit, cursor, settled=settled)
 
 
 @router.post("", response_model=BillOut, status_code=201)
 async def create_bill(data: BillCreate, user: CurrentUserDep, db: DB) -> BillOut:
     return await svc.create_bill(db, user, data)
+
+
+@router.delete("", status_code=204)
+async def clear_bills(user: CurrentUserDep, db: DB, services: ServicesDep,
+                      confirmation: Annotated[Literal["DELETE ALL BILLS", "DELETE ASSOCIATED BILLS"], Query()],
+                      permanent: bool = False, person_id: UUID | None = None) -> Response:
+    expected = "DELETE ASSOCIATED BILLS" if person_id is not None else "DELETE ALL BILLS"
+    if confirmation != expected:
+        raise BadRequest("confirmation_required", f"Confirm with {expected}.")
+    await svc.clear_bills(db, user, services, permanent=permanent, person_id=person_id)
+    return Response(status_code=204)
 
 
 @router.get("/{bill_id}", response_model=BillOut)
@@ -61,12 +73,9 @@ async def patch_bill(bill_id: UUID, data: BillPatch, user: CurrentUserDep, db: D
 
 
 @router.delete("/{bill_id}", status_code=204)
-async def delete_bill(bill_id: UUID, user: CurrentUserDep, db: DB, services: ServicesDep) -> Response:
-    active_job = await svc.delete_bill(db, user, bill_id)
-    if active_job is not None:
-        from app.services.scans import cancel_job
-
-        await cancel_job(db, services, user, active_job)
+async def delete_bill(bill_id: UUID, user: CurrentUserDep, db: DB, services: ServicesDep,
+                      permanent: bool = False) -> Response:
+    await svc.delete_bill(db, user, bill_id, services, permanent=permanent)
     return Response(status_code=204)
 
 

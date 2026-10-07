@@ -58,3 +58,10 @@ export function billName(b: { title: string | null; merchant: string | null }): 
 export function peopleCount(n: number): string {
   return n === 1 ? '1 person' : `${n} people`
 }
+
+export function participantNames(bill: { participant_count: number; participant_names?: string[] }): string {
+  if (!bill.participant_names?.length) return peopleCount(bill.participant_count)
+  const names = bill.participant_names.slice(0, 2).join(', ')
+  const overflow = Math.max(bill.participant_count, bill.participant_names.length) - 2
+  return overflow > 0 ? `${names} +${overflow}` : names
+}

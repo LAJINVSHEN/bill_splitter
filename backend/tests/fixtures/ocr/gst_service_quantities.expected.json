@@ -1,0 +1,33 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "Item A", "quantity": 2, "unit_price": 14.00, "total_price": 28.00},
+    {"name": "Item B", "quantity": 1, "unit_price": 14.00, "total_price": 14.00},
+    {"name": "Item C", "quantity": 1, "unit_price": 14.00, "total_price": 14.00},
+    {"name": "Item D", "quantity": 1, "unit_price": 14.00, "total_price": 14.00},
+    {"name": "Item E", "quantity": 1, "unit_price": 12.00, "total_price": 12.00},
+    {"name": "Item F", "quantity": 4, "unit_price": 2.00, "total_price": 8.00},
+    {"name": "Item G", "quantity": 2, "unit_price": 1.00, "total_price": 2.00},
+    {"name": "Pack (5 pieces/pack)", "quantity": 1, "unit_price": 3.00, "total_price": 3.00}
+  ],
+  "subtotal": 95.00,
+  "taxes_or_charges": [
+    {"name": "Service Charge 10%", "amount": 9.50},
+    {"name": "GST 9%", "amount": 9.41}
+  ],
+  "grand_total": 113.91,
+  "payment_method": "Unknown",
+  "currency": "SGD",
+  "_expect": {
+    "tax_scenario": "tax_exclusive",
+    "warnings": 0,
+    "items_count": 8,
+    "items_total_cents": 9500,
+    "charges_total_cents": 1891,
+    "grand_total_cents": 11391,
+    "coverage": "Eight adjudicated priced rows, with quantities 2, 4 and 2 and explicit unit prices. A five-piece pack remains quantity 1. GST is applied after service. Single-photo OCR."
+  }
+}
