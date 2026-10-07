@@ -22,6 +22,8 @@ export interface MeOut {
   must_change_password: boolean
   monthly_scan_quota: number
   default_currency: string
+  /** "PayNow 9123 4567": shown on share links when this user paid. Optional until every API has it. */
+  payment_note?: string | null
   self_person_id: UUID
   created_at: string
 }
@@ -250,6 +252,7 @@ export interface BillSummaryOut {
   status: BillStatus
   source: BillSource
   grand_total_cents: Minor | null
+  settle_currency?: string | null
   participant_count: number
   unsettled_count: number
   created_at: string
@@ -319,6 +322,8 @@ export interface PublicShareOut {
   grand_total_cents: Minor
   settle_grand_total_cents: Minor | null
   payer_name: string | null
+  /** the bill owner's note, only when the owner paid; optional until every API has it */
+  payer_payment_note?: string | null
   scope: 'person' | 'bill'
   person: PublicPerson | null
   people: PublicPerson[]

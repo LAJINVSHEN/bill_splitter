@@ -51,7 +51,8 @@ export const useSummary = () => useQuery({ queryKey: qk.summary, queryFn: () => 
 export function useUpdateMe() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { display_name?: string; default_currency?: string }) => api<MeOut>('/me', { method: 'PATCH', body }),
+    mutationFn: (body: { display_name?: string; default_currency?: string; payment_note?: string | null }) =>
+      api<MeOut>('/me', { method: 'PATCH', body }),
     onSuccess: (me) => {
       qc.setQueryData(qk.me, me)
       void qc.invalidateQueries({ queryKey: qk.summary })
