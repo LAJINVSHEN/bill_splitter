@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""  # service-role / sb_secret key (server only)
     supabase_admin_backend: Literal["supabase", "fake"] = "supabase"
     auth_email_domain: str = "users.even.app"
+    # Dev-only login (/api/dev/auth/*, never mounted in production or with the real Supabase admin):
+    # password accepted for users the in-memory fake admin doesn't know. Empty = reject.
+    dev_login_password: str = ""
     jwt_audience: str = "authenticated"
     jwt_leeway_seconds: int = 30
     jwks_cache_seconds: int = 600

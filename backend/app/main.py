@@ -18,6 +18,7 @@ from app import __version__
 from app.api import build_api_router
 from app.config import Settings, get_settings
 from app.database import create_database
+from app.devtools import dev_auth_enabled
 from app.errors import CatchAllMiddleware, install_exception_handlers
 from app.integrations.azure_ocr import build_ocr
 from app.integrations.llm import build_llm
@@ -124,7 +125,10 @@ def create_app(settings: Settings | None = None,
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         max_age=600,
     )
-    app.include_router(build_api_router(dev_files=settings.storage_backend == "local" and not settings.is_production))
+    app.include_router(build_api_router(
+        dev_files=settings.storage_backend == "local" and not settings.is_production,
+        dev_auth=dev_auth_enabled(settings),
+    ))
     return app
 
 

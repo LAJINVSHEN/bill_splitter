@@ -3,6 +3,7 @@
     python -m app.cli bootstrap-admin --username george [--email you@gmail.com --google]
     python -m app.cli bootstrap-admin --username george --existing-user-id <auth uuid>
     python -m app.cli dev-token --username alice [--hours 12]      (not in production)
+    python -m app.cli dev-seed                                      (local demo data; fake auth only)
     python -m app.cli ensure-bucket                                 (Supabase Storage)
 
 ``bootstrap-admin`` prints the temporary password ONCE to your own terminal; it is
@@ -14,14 +15,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-import time
 import uuid
 
-import jwt
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import create_database
+from app.devtools import dev_auth_enabled, mint_dev_token, seed
 from app.models import Profile
 from app.schemas.admin import AdminUserCreate
 
@@ -85,12 +85,22 @@ async def dev_token(args: argparse.Namespace) -> int:
     if uid is None:
         print(f"No profile named {args.username!r}.", file=sys.stderr)
         return 1
-    now = int(time.time())
-    claims = {"sub": str(uid), "aud": settings.jwt_audience, "role": "authenticated", "iat": now,
-              "exp": now + int(args.hours * 3600)}
-    if settings.jwt_issuer:
-        claims["iss"] = settings.jwt_issuer
-    print(jwt.encode(claims, settings.supabase_jwt_secret, algorithm="HS256"))
+    print(mint_dev_token(settings, uid, args.hours)[0])
+    return 0
+
+
+async def dev_seed(_: argparse.Namespace) -> int:
+    settings = get_settings()
+    if not dev_auth_enabled(settings):
+        print("dev-seed needs ENVIRONMENT != production and SUPABASE_ADMIN_BACKEND=fake.", file=sys.stderr)
+        return 1
+    db = create_database(settings, null_pool=True)
+    try:
+        result = await seed(db.sessionmaker, settings)
+    finally:
+        await db.dispose()
+    print(f"Seeded admin 'george' + 4 members and {len(result.bill_ids)} bills (idempotent).")
+    print("Log in via POST /api/dev/auth/login with any seeded username and DEV_LOGIN_PASSWORD.")
     return 0
 
 
@@ -124,6 +134,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--username", required=True)
     p.add_argument("--hours", type=float, default=12)
     p.set_defaults(func=dev_token)
+
+    p = sub.add_parser("dev-seed", help="create/restore the deterministic local demo data (not in production)")
+    p.set_defaults(func=dev_seed)
 
     p = sub.add_parser("ensure-bucket", help="create the private receipts bucket in Supabase Storage")
     p.set_defaults(func=ensure_bucket)

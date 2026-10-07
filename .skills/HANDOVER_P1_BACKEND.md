@@ -1,4 +1,7 @@
-# Handover — P1 Backend core (2026-10-07)
+# Handover — P1 Backend core + P1b multi-currency & dev login (2026-10-07)
+
+> Product name is now **even** (`APP_NAME`, API title "even API", auth email domain `users.even.app`).
+> P1b additions are summarised in §11 and folded into the contract below.
 
 > Read `.skills/BRIEF.md` first. This file is the contract the frontend (P3) builds against.
 > Branch `production-rebuild`, commits `4ef9a78` (core) and `574da2f` (tests, ops, CI). Nothing pushed.
@@ -16,7 +19,7 @@
 | Async scan pipeline (quotas, idempotency, cache, heartbeat, cancel, retry, recovery) | ✅ |
 | Usage + quotas (per user pages, global pages, global LLM $) | ✅ |
 | Golden vectors `shared/split-vectors.json` (34 split + 14 validation cases) | ✅ |
-| pytest green on Postgres 16 | ✅ **164 passed** (`docker compose run --rm test`, ~30 s) |
+| pytest green on Postgres 16 | ✅ **224 passed** after P1b (`docker compose run --rm test`, ~35 s; the 3 skips are the benchmark agent's live-LLM tests) |
 | CI workflow (backend job) | ✅ `.github/workflows/ci.yml` (not yet run on GitHub — repo not pushed) |
 | Render image + start script | ✅ built and booted locally (non-root, migrations on start, docs hidden) |
 
@@ -110,7 +113,7 @@ Money is `BIGINT` cents, quantities `NUMERIC(12,3)`, weights `NUMERIC(12,4)`. En
 
 ### 6.1 Conventions
 
-- JSON, `snake_case`. IDs are UUID strings. Money is **integer cents** (`*_cents`). `quantity`, `weight`, `percent` are **decimal strings** (`"2"`, `"0.5"`, `"9.92"`); requests accept numbers or strings. Dates `YYYY-MM-DD`, timestamps ISO-8601 UTC.
+- JSON, `snake_case`. IDs are UUID strings. Money is an **integer in MINOR UNITS of its currency** (`*_cents`: cents for SGD, whole yen for JPY, fils for KWD; exponents in `shared/currencies.json`). Never assume 2 decimals. `quantity`, `weight`, `percent` are **decimal strings** (`"2"`, `"0.5"`, `"9.92"`); requests accept numbers or strings. Dates `YYYY-MM-DD`, timestamps ISO-8601 UTC.
 - **Errors** always: `{"detail": "<human message>", "code": "<machine_code>", ...extra}`; 422 adds `errors: [{loc, msg, type}]`. Show `detail`; branch on `code`.
 - Request bodies reject unknown fields (422). Every bill mutation returns the full **`BillOut`** (with the derived `split`), so one response re-renders the page.
 - Lists: `?limit=&cursor=` → `{items, next_cursor}` (pass `next_cursor` back; `null` = last page).
@@ -146,9 +149,14 @@ interface ValidationOut { ok: boolean; tax_scenario: TaxScenario | null; items_t
               expected_cents: Cents; actual_cents: Cents }[] }
 interface SplitPersonOut { person_id: UUID; name: string; color_seed: number; is_self: boolean; is_payer: boolean;
   items_cents: Cents; adjustment_cents: Cents /* tax/service/discount/rounding share = total - items */; total_cents: Cents;
+  settle_total_cents: Cents | null /* settle currency; null without conversion */;
+  effective_total_cents: Cents /* what they owe, in effective_currency */;
   items: { item_id: UUID; name: string; share_cents: Cents }[];
-  settled_at: string | null; settled_amount_cents: Cents | null; outstanding_cents: Cents /* still owed to payer */ }
-interface SplitOut { currency: string; grand_total_cents: Cents; all_items_cents: Cents; assigned_items_cents: Cents;
+  settled_at: string | null; settled_amount_cents: Cents | null /* effective currency */;
+  outstanding_cents: Cents /* still owed to payer, effective currency */ }
+interface SplitOut { currency: string /* bill currency */; settle_currency: string | null; fx_rate: Dec | null;
+  effective_currency: string /* settle_currency ?? currency: settlements + outstanding */;
+  grand_total_cents: Cents; settle_grand_total_cents: Cents | null; all_items_cents: Cents; assigned_items_cents: Cents;
   payer_person_id: UUID | null; people: SplitPersonOut[]; unassigned_item_ids: UUID[];
   issues: { code: 'unassigned_item' | 'custom_amounts_mismatch' | 'zero_weights' | 'zero_items_subtotal'
             | 'no_participants' | 'share_not_participant' | 'single_has_many_shares'; message: string;
@@ -159,16 +167,20 @@ interface FileOut { id: UUID; job_id: UUID | null; mime: string; bytes: number; 
 interface BillOut { id: UUID; title: string | null; merchant: string | null; bill_date: string | null; currency: string;
   status: BillStatus; source: 'scan' | 'manual' | 'quick'; payer_person_id: UUID | null /* effective payer */;
   subtotal_cents: Cents | null /* as printed */; grand_total_cents: Cents | null; tax_scenario: TaxScenario | null;
+  settle_currency: string | null; fx_rate: Dec | null /* snapshot: 1 currency = fx_rate settle_currency */;
+  effective_currency: string; currency_locked: boolean /* true once anyone settled */;
   receipt_meta: { receipt_number?: string; time?: string; store_address?: string; store_phone?: string;
                   payment_method?: string; transaction_id?: string; notes?: string };
   created_at: string; updated_at: string; items: ItemOut[]; charges: ChargeOut[]; participants: ParticipantOut[];
   validation: ValidationOut | null /* null until a receipt exists */; split: SplitOut;
-  latest_job: { id: UUID; status: JobStatus; error_code: string | null; retryable: boolean } | null; files: FileOut[] }
+  latest_job: { id: UUID; status: JobStatus; error_code: string | null; retryable: boolean;
+                detected_currency: string | null } | null; files: FileOut[] }
 interface BillSummaryOut { id: UUID; title: string | null; merchant: string | null; bill_date: string | null; currency: string;
   status: BillStatus; source: 'scan' | 'manual' | 'quick'; grand_total_cents: Cents | null;
-  participant_count: number; unsettled_count: number /* non-payer participants not settled */; created_at: string; updated_at: string }
+  settle_currency: string | null; participant_count: number; unsettled_count: number /* non-payer participants not settled */; created_at: string; updated_at: string }
 interface JobOut { id: UUID; bill_id: UUID; status: JobStatus; attempts: number; error_code: string | null;
   error_message: string | null; retryable: boolean; model_used: string | null; pages_billed: number;
+  detected_currency: string | null /* receipt currency ≠ bill currency → offer a one-tap switch */;
   validation: ValidationOut | null; timings: { ocr_ms?: number; llm_ms?: number; total_ms?: number };
   heartbeat_at: string | null; started_at: string | null; finished_at: string | null; created_at: string; updated_at: string }
 ```
@@ -183,7 +195,7 @@ interface JobOut { id: UUID; bill_id: UUID; status: JobStatus; attempts: number;
 | `PATCH /me` | `{display_name?, default_currency?}` | `MeOut` (also renames the "Me" person) |
 | `POST /me/password-changed` | call after `supabase.auth.updateUser({password})` | `MeOut` with `must_change_password:false` |
 | `GET /me/usage` | — | `{month:"YYYY-MM", timezone, pages_used, pages_quota, pages_remaining, llm_calls, cost_micros, scans_paused, pause_reason: null\|"scans_disabled"\|"user_quota"\|"global_page_cap"\|"llm_budget"}` |
-| `GET /me/summary` | — | `{currencies:[{currency, owed_to_me_cents, i_owe_cents}], people:[{person_id, name, currency, they_owe_me_cents, i_owe_them_cents, bill_count}], bills:[{bill_id, title, bill_date, currency, owed_to_me_cents, i_owe_cents, unsettled_people}]}` — **complete** bills only, grouped by currency |
+| `GET /me/summary` | — | `{home:{currency, owed_to_me_cents, i_owe_cents} /* only bills whose effective currency = the user's default */, currencies:[{currency, owed_to_me_cents, i_owe_cents}] /* every effective currency, never converted */, people:[{person_id, name, currency, they_owe_me_cents, i_owe_them_cents, bill_count}], bills:[{bill_id, title, bill_date, currency, owed_to_me_cents, i_owe_cents, unsettled_people}]}` — **complete** bills only, grouped by **effective** currency (settle currency when the bill has a conversion) |
 
 ### 6.4 People
 
@@ -201,7 +213,7 @@ interface JobOut { id: UUID; bill_id: UUID; status: JobStatus; attempts: number;
 | `GET /bills?status=draft,review&limit=20&cursor=` | statuses comma-separated; limit 1–100 | `{items: BillSummaryOut[], next_cursor}` newest first |
 | `POST /bills` | `{title?, merchant?, bill_date?, currency? (default user's), source?: 'manual'\|'scan'\|'quick'}` | 201 `BillOut` — owner's "Me" is participant #0 and payer |
 | `GET /bills/{id}` | — | `BillOut` |
-| `PATCH /bills/{id}` | `{title?, merchant?, bill_date?, currency?, status?: 'draft'\|'review'\|'assigning'\|'complete', payer_person_id?: UUID\|null}` (payer must be a participant → 400 `payer_not_participant`; 409 `scan_in_progress` for status while scanning) | `BillOut` |
+| `PATCH /bills/{id}` | `{title?, merchant?, bill_date?, currency?, status?: 'draft'\|'review'\|'assigning'\|'complete', payer_person_id?: UUID\|null, settle_currency?: string\|null, fx_rate?: Dec, save_rate?: boolean}`; currency/conversion rules in §11 (payer must be a participant → 400 `payer_not_participant`; 409 `scan_in_progress` for status/currency while scanning; 409 `currency_locked`; 400 `fx_rate_required\|settle_same_currency\|settle_currency_required`) | `BillOut` |
 | `DELETE /bills/{id}` | — | 204 soft delete; share links revoked, photos queued for purge, active scan cancelled |
 | `PUT /bills/{id}/receipt` | `{items:[{id?, name (1–200), quantity? = 1 (>0, ≤3 dp), unit_price_cents, total_price_cents}] (≤200), charges?:[{name, amount_cents, kind?}] (≤30), subtotal_cents?: number\|null, grand_total_cents (≥0), merchant?, bill_date?}` — items with an existing `id` keep their assignment; omitted items are deleted; charge `kind` inferred from the name when omitted | `BillOut` — **always saves**; read `validation.ok`. 409 `scan_in_progress`, 400 `unknown_item` |
 | `PUT /bills/{id}/participants` | `{person_ids: UUID[]}` (ordered, unique, ≤50) — removing someone drops their shares/settlement and unassigns items left with nobody | `BillOut` (400 `unknown_person`, `person_archived`) |
@@ -232,7 +244,7 @@ While a job is active the bill is `scanning` and `PUT /receipt`, `PUT /quick` an
 | `POST /bills/{id}/share-links` | optional `{person_id?: UUID\|null (null = whole bill), expires_in_days?: 1–365}` | 201 `{id, person_id, created_at, expires_at, revoked_at, last_viewed_at, token, path:"/s/<token>", url}` — **token shown once** |
 | `GET /bills/{id}/share-links` | — | `{items:[{id, person_id, created_at, expires_at, revoked_at, last_viewed_at}]}` |
 | `DELETE /bills/{id}/share-links` / `…/share-links/{link_id}` | — | 204 (revoke all / one) |
-| `GET /public/share/{token}` (**public**, 30/min per IP, `Cache-Control: no-store`) | — | `{title, merchant, bill_date, currency, grand_total_cents, payer_name, scope:"person"\|"bill", person: PublicPerson\|null, people: PublicPerson[]}` with `PublicPerson = {name, is_payer, items:[{name, share_cents}], items_cents, adjustment_cents, total_cents, settled, outstanding_cents}`; no ids. 404 for unknown/revoked/expired/deleted |
+| `GET /public/share/{token}` (**public**, 30/min per IP, `Cache-Control: no-store`) | — | `{title, merchant, bill_date, currency, settle_currency, fx_rate, effective_currency, grand_total_cents, settle_grand_total_cents, payer_name, scope:"person"\|"bill", person: PublicPerson\|null, people: PublicPerson[]}` with `PublicPerson = {name, is_payer, items:[{name, share_cents}], items_cents, adjustment_cents, total_cents, settle_total_cents, settled, outstanding_cents /* effective currency */}`; no ids. 404 for unknown/revoked/expired/deleted |
 
 ### 6.8 Admin (role admin)
 
@@ -252,10 +264,10 @@ While a job is active the bill is `scanning` and `PUT /receipt`, `PUT /quick` an
 
 ### 6.10 Frontend notes
 
-- Login form: a username without `@` maps to `${username}@${VITE_AUTH_EMAIL_DOMAIN}` for `signInWithPassword`; `VITE_AUTH_EMAIL_DOMAIN` must equal `AUTH_EMAIL_DOMAIN`.
+- Login form: a username without `@` maps to `${username}@${VITE_AUTH_EMAIL_DOMAIN}` for `signInWithPassword`; `VITE_AUTH_EMAIL_DOMAIN` must equal `AUTH_EMAIL_DOMAIN` (default `users.even.app`). Local/CI without Supabase: use the dev login (§11.5).
 - After login call `GET /me`; if `must_change_password`, show the change-password screen → `supabase.auth.updateUser({password})` → `POST /me/password-changed`.
 - Compress photos client-side to **JPEG** (Azure DI does not accept WebP), long edge ≤ 2000 px, < 1.5 MB.
-- The TS split mirror must pass `shared/split-vectors.json` (`split_cases` + `validation_cases`); `rules` in that file spells out the algorithm.
+- The TS split mirror must pass `shared/split-vectors.json` (`split_cases`, `validation_cases`, `conversion_cases`, `minor_unit_cases`, `tolerance_cases`); `rules` in that file spells out the algorithm. Read exponents from `shared/currencies.json`.
 
 ## 7. Environment variables
 
@@ -292,3 +304,59 @@ The root `.env` I created holds the real OpenAI/Azure keys (renamed `OCR_*` → 
 - **Root `.gitignore` (not mine to edit) ignores `lib/`, `public`, `build/`, `dist`, … globally** — `frontend/src/lib/` and `frontend/public/` would be silently untracked. Fix before P3 commits (e.g. anchor those patterns or add `!frontend/src/lib/`).
 - **Leftovers outside my scope** (candidates for cleanup by the coordinator): `splitwise.ipynb`, `splitwise_package_for_ref/`, `DATABASE_MIGRATION.sql`, `setup_env.py`, outdated `README.md`/`SETUP.md`/`SESSION_SETUP.md`, `set-up-windows.cmd` (conda flow; backend now runs in Docker). In `backend/`: the stale secrets copy `backend/.env` and **`backend/uploads/` (62 real receipt photos, gitignored)** — useful for the P4 benchmark if moved to `.local/receipts/`; I deleted neither.
 - CI hasn't run on GitHub yet (nothing pushed). The workflow uses `actions/checkout@v7`, `actions/setup-python@v7` (latest at time of writing).
+
+## 11. P1b — multi-currency, user FX rates, dev login
+
+### 11.1 Minor units
+- `shared/currencies.json` — 154 circulating ISO 4217 currencies `{code, exponent, symbol, name}`: JPY/KRW/VND/IDR/CLP/ISK/XAF/XOF… 0 dp, BHD/KWD/OMR/JOD/TND/LYD/IQD 3 dp, the rest 2 dp. **IDR is 0 dp by owner decision (ISO 4217 says 2).** `backend/app/core/data/currencies.json` is a byte-identical copy because the Render image builds from `backend/` only; a test enforces parity, so edit `shared/` and copy.
+- Every `*_cents` field = minor units of its currency (names kept to avoid churn; documented in `core/money.py`). Helpers: `to_cents(amount, exponent)`, `format_cents(cents, exponent)`, strict `parse_major(text, exponent)` (rejects extra decimals).
+- Validator tolerance = `max(1, ROUND_HALF_UP(0.05 × 10^exp))` → 5 (SGD), 1 (JPY), 50 (KWD); messages use the currency's decimals. SGD behaviour and all pre-existing vectors are unchanged.
+- Unknown currency codes are rejected (422) everywhere a currency is accepted.
+- Changing a bill's `currency` **relabels** its amounts: same major-unit values, minor units rescaled when exponents differ (×10^k going up; ROUND_HALF_UP going down, e.g. S$46.68 → ¥47). Any conversion is cleared unless given in the same request.
+
+### 11.2 Saved rates — `/api/me/fx-rates` (typed by the user; no FX API, ever)
+| | Request | Response |
+|---|---|---|
+| `GET /me/fx-rates` | — | `{items:[{base, quote, rate: Dec, derived:false, updated_at}]}` |
+| `GET /me/fx-rates/{base}/{quote}` | — | `{base, quote, rate, derived, updated_at}`; `derived:true` = `1 / stored inverse` (12 significant digits). 404 if neither direction is saved |
+| `PUT /me/fx-rates/{base}/{quote}` | `{rate}`: 1 base = rate quote; > 0, ≤ 15 significant digits, 1e-12…1e12 | the saved rate; replaces the pair in **either** direction (one row per pair) |
+| `DELETE /me/fx-rates/{base}/{quote}` | — | 204 (either direction); 404 if none |
+
+Codes are case-insensitive; 400 `unknown_currency`, 400 `same_currency`. Table `fx_rates(owner_id, base, quote, rate NUMERIC (arbitrary precision), updated_at, unique(owner, base, quote))`, RLS deny-all.
+
+### 11.3 Per-bill conversion (snapshot)
+- `PATCH /bills/{id}` with `settle_currency` (+ optional `fx_rate`): the rate is **copied** onto the bill (`bills.fx_rate`) from the typed value or the saved rate (direct or derived inverse); 400 `fx_rate_required` if neither. Later edits to saved rates never change old bills. `save_rate:true` also stores the rate in `/me/fx-rates`. `settle_currency:null` clears the conversion; `fx_rate` alone re-types the snapshot.
+- **Locked** once any participant has settled (`currency_locked:true`; 409 `currency_locked` for `currency`, `settle_currency` and `fx_rate`). Undo the settlements to change it.
+- Maths: `settle_grand_total = ROUND_HALF_UP(grand_minor × fx_rate × 10^(settle_exp − bill_exp))`, then `allocate(settle_grand_total, per-person bill-currency totals)`, so converted shares sum exactly (`conversion_cases` vectors). Split, bill and share link return both currencies; `effective_currency = settle_currency ?? currency`. Settlements (`settled_amount_cents`, default `effective_total_cents`) and `outstanding_cents` are in the effective currency.
+- `/me/summary` groups by effective currency and adds `home` (the profile's default currency), which sums **only** bills whose effective currency is home. Other currencies stay separate and are never converted implicitly.
+
+### 11.4 Extraction
+- The LLM schema gained `currency: string | null` (ISO code only if printed or clearly implied by symbols or the address) with one added prompt line (rule 6); the rest of the prompt is unchanged.
+- Extracted major-unit amounts use the **bill currency's** exponent. A different, valid detected code is stored on the job as `detected_currency` (in `JobOut` and `BillOut.latest_job`) and **not applied**; the UI offers a one-tap `PATCH {currency}`, which relabels amounts per 11.1.
+
+### 11.5 Dev-only login (local + CI E2E without Supabase)
+Mounted only when `ENVIRONMENT != production` **and** `SUPABASE_ADMIN_BACKEND=fake` (tests assert it's absent otherwise, including in a production app).
+
+| | Request | Response |
+|---|---|---|
+| `POST /api/dev/auth/login` | `{username (or email), password}` | `{access_token, token_type:"bearer", expires_in: 43200}`: HS256 with the same claims as `dev-token` / a Supabase access token. Password = the one the in-memory fake admin holds for that user (users created via `/admin/users` in the running process), else `DEV_LOGIN_PASSWORD`; unset means reject. 401 `invalid_credentials`, 403 `account_disabled` |
+| `POST /api/dev/auth/password` (Bearer; allowed before the temp-password change) | `{password (≥ 6)}` | 204; stores it in the fake admin (mirror of `supabase.auth.updateUser`). Then call `POST /me/password-changed` |
+
+`python -m app.cli dev-seed` (same guards) creates or restores deterministic data:
+- admin **george** + members **maya, arjun, lena, tomas** (no forced password change; log in with `DEV_LOGIN_PASSWORD`);
+- george's saved people (the four members + "Priya Raman") and a saved rate JPY→SGD 0.0091;
+- **Saturday hotpot** (SGD, complete; Maya settled in full, Arjun partially with S$20.00);
+- **Kyoto ramen night** (JPY, tax-inclusive, converted to SGD at the 0.0091 snapshot, complete);
+- **Team lunch** (SGD, `review`, items 39.10 vs printed subtotal 41.10 → `items_subtotal_mismatch`, unassigned).
+
+It is idempotent: re-running restores the same IDs and state. The root `.env` now holds a random local `DEV_LOGIN_PASSWORD`; CI E2E should set its own.
+
+### 11.6 Env
+New: `APP_NAME` (default `even`), `DEV_LOGIN_PASSWORD` (dev only, default empty). Changed default: `AUTH_EMAIL_DOMAIN=users.even.app` (and `VITE_AUTH_EMAIL_DOMAIN`). `DEFAULT_CURRENCY` must be a code from `shared/currencies.json`.
+
+### 11.7 Schema (migration `0002`, additive)
+`fx_rates` (above); `bills.settle_currency` + `bills.fx_rate` (both or neither, settle ≠ currency, rate > 0); `extraction_jobs.detected_currency`.
+
+### 11.8 Open
+- Switching currency after a scan rounds when the exponent shrinks (2 → 0). That's fine for "the receipt was in yen all along" (whole numbers) and lossy otherwise; the review screen shows any resulting mismatch.
+- Settlements are single amounts in the effective currency; there is no per-payment currency (by design: currencies are never mixed).
