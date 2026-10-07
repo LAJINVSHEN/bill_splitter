@@ -36,7 +36,7 @@ interface ListProps {
 /** Desktop: one table, shared columns. Scrolls inside its own box if the column gets narrow. */
 export function BillTable({ bills, owing, homeCurrency, label }: ListProps) {
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table aria-label={label} className="w-full min-w-[640px] border-collapse text-base">
         <thead>
           <tr className="border-t-[1.5px] border-b border-ink border-b-rule text-left text-[14px] text-ink-2">

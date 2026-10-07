@@ -46,7 +46,7 @@ export function Switch({
     >
       <span className={cn('relative block h-7 w-12 rounded-full transition-colors', checked ? 'bg-cobalt' : 'bg-rule-2')}>
         <span
-          className={cn('absolute top-1 block h-5 w-5 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-6' : 'translate-x-1')}
+          className={cn('absolute top-1 block h-5 w-5 rounded-full bg-white shadow transition-[left]', checked ? 'left-6' : 'left-1')}
         />
       </span>
     </button>

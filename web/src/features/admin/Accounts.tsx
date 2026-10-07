@@ -72,7 +72,7 @@ export function AccountsList({ users, usage, onEdit }: { users: AdminUserOut[]; 
           </li>
         ))}
       </ul>
-      <div className="hidden overflow-x-auto md:block">
+      <div className="relative hidden overflow-x-auto md:block">
         <table aria-label="Accounts" className="w-full min-w-[620px] border-collapse text-base">
           <thead>
             <tr className="border-t-[1.5px] border-b border-ink border-b-rule text-left text-[14px] text-ink-2">

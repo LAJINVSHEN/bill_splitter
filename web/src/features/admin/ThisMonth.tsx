@@ -72,7 +72,7 @@ function ByModel({ usage }: { usage: AdminUsageOut }) {
   return (
     <div>
       <SectionTitle>By model</SectionTitle>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table className="w-full min-w-[520px] border-collapse text-base">
           <thead>
             <tr className="border-t-[1.5px] border-b border-ink border-b-rule text-left text-[14px] text-ink-2">
