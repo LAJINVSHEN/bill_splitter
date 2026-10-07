@@ -343,7 +343,12 @@ export const useResetPassword = () =>
 export function useUpdateSettings() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: Partial<Pick<AdminSettingsOut, 'global_monthly_page_cap' | 'global_monthly_llm_budget_micros' | 'default_user_quota' | 'scans_enabled'>>) =>
+    mutationFn: (
+      body: Partial<Pick<AdminSettingsOut, 'global_monthly_page_cap' | 'global_monthly_llm_budget_micros' | 'default_user_quota' | 'scans_enabled'>> & {
+        /** false clears a provider-reported pause for this month */
+        provider_paused?: boolean
+      },
+    ) =>
       api<AdminSettingsOut>('/admin/settings', { method: 'PATCH', body }),
     onSuccess: (s) => {
       qc.setQueryData(qk.adminSettings, s)

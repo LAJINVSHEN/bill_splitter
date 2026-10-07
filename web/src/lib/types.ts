@@ -356,7 +356,8 @@ export interface AdminUsageOut {
   }
   global_monthly_page_cap: number
   global_monthly_llm_budget_micros: number
-  by_user: Array<{ user_id: UUID; username: string; ocr_pages: number; llm_calls: number; cost_micros: number; quota: number }>
+  /** user_id/username are null for usage not tied to an account (e.g. a deleted user) */
+  by_user: Array<{ user_id: UUID | null; username: string | null; ocr_pages: number; llm_calls: number; cost_micros: number; quota: number | null }>
   by_model: Array<{
     model: string
     calls: number
@@ -381,6 +382,16 @@ export interface AdminSettingsOut {
     timeout_seconds: number
     max_retries: number
     backend: string
+  /** hard OCR provider limits (Azure F0); optional until every API has them */
+  provider?: {
+    azure_di_monthly_page_limit: number
+    azure_di_calls_per_minute_limit: number
+    azure_di_calls_per_minute: number
+    /** min(global_monthly_page_cap, azure_di_monthly_page_limit) */
+    effective_monthly_page_cap: number
+    /** "YYYY-MM" when Azure reported its quota exhausted */
+    provider_paused_month: string | null
+  }
   }
   ocr_backend: string
   ocr_max_pdf_pages: number
