@@ -374,14 +374,6 @@ export interface AdminSettingsOut {
   global_monthly_llm_budget_micros: number
   default_user_quota: number
   scans_enabled: boolean
-  llm: {
-    primary_model: string
-    primary_reasoning_effort: string
-    fallback_model: string | null
-    fallback_reasoning_effort: string | null
-    timeout_seconds: number
-    max_retries: number
-    backend: string
   /** hard OCR provider limits (Azure F0); optional until every API has them */
   provider?: {
     azure_di_monthly_page_limit: number
@@ -392,6 +384,14 @@ export interface AdminSettingsOut {
     /** "YYYY-MM" when Azure reported its quota exhausted */
     provider_paused_month: string | null
   }
+  llm: {
+    primary_model: string
+    primary_reasoning_effort: string
+    fallback_model: string | null
+    fallback_reasoning_effort: string | null
+    timeout_seconds: number
+    max_retries: number
+    backend: string
   }
   ocr_backend: string
   ocr_max_pdf_pages: number
