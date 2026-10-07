@@ -61,6 +61,7 @@ class PublicShareOut(OutputModel):
     grand_total_cents: int
     settle_grand_total_cents: int | None
     payer_name: str | None
+    payer_payment_note: str | None  # the bill owner's note, only when the owner's "Me" paid
     scope: str  # "person" | "bill"
     person: PublicPerson | None  # per-person link
     people: list[PublicPerson]  # whole-bill link (empty for per-person links)

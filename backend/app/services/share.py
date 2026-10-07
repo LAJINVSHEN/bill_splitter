@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings
 from app.errors import BadRequest, NotFound
 from app.middleware.auth import CurrentUser
-from app.models import ShareLink
+from app.models import Profile, ShareLink
 from app.repositories import bills as bills_repo
 from app.schemas.share import (
     PublicItem,
@@ -100,7 +100,11 @@ async def public_view(db: AsyncSession, token: str) -> PublicShareOut:
                             settled=p.outstanding_cents == 0,
                             outstanding_cents=p.outstanding_cents)
 
-    payer = next((p.name for p in split.people if p.is_payer), None)
+    payer_row = next((p for p in split.people if p.is_payer), None)
+    payer = payer_row.name if payer_row else None
+    note = None
+    if payer_row is not None and payer_row.is_self:  # the owner paid: show how to pay them back
+        note = await db.scalar(select(Profile.payment_note).where(Profile.id == bill.owner_id))
     if link.person_id is not None:
         mine = next((p for p in split.people if p.person_id == link.person_id), None)
         if mine is None:  # person removed from the bill since the link was made
@@ -114,4 +118,5 @@ async def public_view(db: AsyncSession, token: str) -> PublicShareOut:
                           settle_currency=split.settle_currency, fx_rate=split.fx_rate,
                           effective_currency=split.effective_currency, grand_total_cents=split.grand_total_cents,
                           settle_grand_total_cents=split.settle_grand_total_cents, payer_name=payer,
+                          payer_payment_note=note,
                           scope="person" if link.person_id else "bill", person=scoped, people=people)

@@ -130,7 +130,7 @@ type TaxScenario = 'tax_exclusive' | 'tax_inclusive' | 'no_taxes';
 type JobStatus = 'queued' | 'ocr' | 'llm' | 'validating' | 'succeeded' | 'needs_review' | 'failed' | 'cancelled';
 
 interface MeOut { id: UUID; username: string; display_name: string; email: string | null; role: 'admin' | 'member';
-  must_change_password: boolean; monthly_scan_quota: number; default_currency: string; self_person_id: UUID; created_at: string }
+  must_change_password: boolean; monthly_scan_quota: number; default_currency: string; payment_note: string | null /* e.g. "PayNow 9123 4567" */; self_person_id: UUID; created_at: string }
 interface PersonOut { id: UUID; name: string; color_seed: number /*0-359 hue*/; is_self: boolean;
   last_used_at: string | null; archived_at: string | null; created_at: string }
 
@@ -189,10 +189,10 @@ interface JobOut { id: UUID; bill_id: UUID; status: JobStatus; attempts: number;
 
 | Method & path | Request | Response |
 |---|---|---|
-| `GET /health` (public, no DB) | — | `{status:"ok", version}` |
+| `GET /health` (public, no DB) | — | `{status:"ok", version, commit: string\|null}` (`commit` = `RENDER_GIT_COMMIT`) |
 | `GET /health/ready` (public) | — | `{status, db}` 200 / 503 |
 | `GET /me` | works before the password change | `MeOut` (creates the "Me" person if missing) |
-| `PATCH /me` | `{display_name?, default_currency?}` | `MeOut` (also renames the "Me" person) |
+| `PATCH /me` | `{display_name?, default_currency?, payment_note?: string\|null}` (note trimmed, ≤ 200 chars, `""`/null clears) | `MeOut` (also renames the "Me" person) |
 | `POST /me/password-changed` | call after `supabase.auth.updateUser({password})` | `MeOut` with `must_change_password:false` |
 | `GET /me/usage` | — | `{month:"YYYY-MM", timezone, pages_used, pages_quota, pages_remaining, llm_calls, cost_micros, scans_paused, pause_reason: null\|"scans_disabled"\|"user_quota"\|"global_page_cap"\|"llm_budget"}` |
 | `GET /me/summary` | — | `{home:{currency, owed_to_me_cents, i_owe_cents} /* only bills whose effective currency = the user's default */, currencies:[{currency, owed_to_me_cents, i_owe_cents}] /* every effective currency, never converted */, people:[{person_id, name, currency, they_owe_me_cents, i_owe_them_cents, bill_count}], bills:[{bill_id, title, bill_date, currency, owed_to_me_cents, i_owe_cents, unsettled_people}]}` — **complete** bills only, grouped by **effective** currency (settle currency when the bill has a conversion) |
@@ -244,7 +244,7 @@ While a job is active the bill is `scanning` and `PUT /receipt`, `PUT /quick` an
 | `POST /bills/{id}/share-links` | optional `{person_id?: UUID\|null (null = whole bill), expires_in_days?: 1–365}` | 201 `{id, person_id, created_at, expires_at, revoked_at, last_viewed_at, token, path:"/s/<token>", url}` — **token shown once** |
 | `GET /bills/{id}/share-links` | — | `{items:[{id, person_id, created_at, expires_at, revoked_at, last_viewed_at}]}` |
 | `DELETE /bills/{id}/share-links` / `…/share-links/{link_id}` | — | 204 (revoke all / one) |
-| `GET /public/share/{token}` (**public**, 30/min per IP, `Cache-Control: no-store`) | — | `{title, merchant, bill_date, currency, settle_currency, fx_rate, effective_currency, grand_total_cents, settle_grand_total_cents, payer_name, scope:"person"\|"bill", person: PublicPerson\|null, people: PublicPerson[]}` with `PublicPerson = {name, is_payer, items:[{name, share_cents}], items_cents, adjustment_cents, total_cents, settle_total_cents, settled, outstanding_cents /* effective currency */}`; no ids. 404 for unknown/revoked/expired/deleted |
+| `GET /public/share/{token}` (**public**, 30/min per IP, `Cache-Control: no-store`) | — | `{title, merchant, bill_date, currency, settle_currency, fx_rate, effective_currency, grand_total_cents, settle_grand_total_cents, payer_name, payer_payment_note /* bill owner's note, only when the owner's "Me" is the payer; else null */, scope:"person"\|"bill", person: PublicPerson\|null, people: PublicPerson[]}` with `PublicPerson = {name, is_payer, items:[{name, share_cents}], items_cents, adjustment_cents, total_cents, settle_total_cents, settled, outstanding_cents /* effective currency */}`; no ids. 404 for unknown/revoked/expired/deleted |
 
 ### 6.8 Admin (role admin)
 

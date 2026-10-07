@@ -22,7 +22,7 @@ async def get_me(db: AsyncSession, user: CurrentUser) -> MeOut:
     return MeOut(id=profile.id, username=profile.username, display_name=profile.display_name, email=profile.email,
                  role=profile.role, must_change_password=profile.must_change_password,
                  monthly_scan_quota=profile.monthly_scan_quota, default_currency=profile.default_currency,
-                 self_person_id=me.id, created_at=profile.created_at)
+                 payment_note=profile.payment_note, self_person_id=me.id, created_at=profile.created_at)
 
 
 async def patch_me(db: AsyncSession, user: CurrentUser, data: MePatch) -> MeOut:
@@ -31,6 +31,8 @@ async def patch_me(db: AsyncSession, user: CurrentUser, data: MePatch) -> MeOut:
         values["display_name"] = data.display_name
     if data.default_currency is not None:
         values["default_currency"] = data.default_currency
+    if "payment_note" in data.model_fields_set:
+        values["payment_note"] = data.payment_note
     if values:
         await db.execute(update(Profile).where(Profile.id == user.id).values(**values))
         if "display_name" in values:  # keep the "Me" person in sync

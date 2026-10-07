@@ -5,14 +5,15 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app import __version__
+from app.config import get_settings
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-async def health() -> dict[str, str]:
+async def health() -> dict[str, str | None]:
     """Liveness: no DB access (used for keep-warm pings)."""
-    return {"status": "ok", "version": __version__}
+    return {"status": "ok", "version": __version__, "commit": get_settings().render_git_commit or None}
 
 
 @router.get("/health/ready")

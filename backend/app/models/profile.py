@@ -39,11 +39,14 @@ class Profile(Base):
     monthly_scan_quota: Mapped[int] = mapped_column(Integer, nullable=False, server_default="30")
     default_currency: Mapped[str] = mapped_column(String(3), nullable=False, server_default="SGD")
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # How friends pay this user back, e.g. "PayNow 9123 4567" (shown on share links they're the payer of).
+    payment_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = created_at_col()
     updated_at: Mapped[datetime] = updated_at_col()
 
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'member')", name="role"),
+        CheckConstraint("payment_note IS NULL OR char_length(payment_note) BETWEEN 1 AND 200", name="payment_note_len"),
         CheckConstraint("username = lower(username)", name="username_lower"),
         CheckConstraint("monthly_scan_quota >= 0", name="quota_nonneg"),
         CheckConstraint("default_currency ~ '^[A-Z]{3}$'", name="currency"),

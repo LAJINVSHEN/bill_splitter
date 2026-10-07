@@ -56,7 +56,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     app_timezone: str = "Asia/Singapore"
     default_currency: str = "SGD"
-    public_app_url: str = ""  # frontend origin used to build share URLs
+    public_app_url: str = ""
+    render_git_commit: str = ""  # set by Render; reported by GET /api/health  # frontend origin used to build share URLs
     cors_origins: CommaList = Field(default_factory=lambda: ["http://localhost:3000"])
 
     # --- Database ------------------------------------------------------------

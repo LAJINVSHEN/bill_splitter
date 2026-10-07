@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field
+from pydantic import AfterValidator, Field
 
 from app.schemas.common import CleanStr, Currency, DecimalStr, InputModel, OutputModel, Rate
 
@@ -18,13 +18,20 @@ class MeOut(OutputModel):
     must_change_password: bool
     monthly_scan_quota: int
     default_currency: str
+    payment_note: str | None  # e.g. "PayNow 9123 4567"; shown on share links when this user paid
     self_person_id: UUID
     created_at: datetime
+
+
+def _blank_to_none(v: str | None) -> str | None:
+    return v or None
 
 
 class MePatch(InputModel):
     display_name: Annotated[CleanStr, Field(min_length=1, max_length=60)] | None = None
     default_currency: Currency | None = None
+    # Trimmed; "" or null clears it.
+    payment_note: Annotated[str | None, Field(max_length=200), AfterValidator(_blank_to_none)] = None
 
 
 PauseReason = Literal["scans_disabled", "user_quota", "global_page_cap", "llm_budget"]

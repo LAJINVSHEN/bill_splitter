@@ -351,3 +351,55 @@ async def test_models_match_migrations(ctx: Ctx) -> None:
 
         diff = await conn.run_sync(_diff)
     assert diff == [], diff
+
+
+# ------------------------------------------------------------------------- P1c: payment note + health commit
+async def test_payment_note_trim_limits_and_clear(ctx: Ctx) -> None:
+    user = await ctx.user()
+    me = (await ctx.client.get("/api/me", headers=user.headers)).json()
+    assert me["payment_note"] is None
+    r = await ctx.client.patch("/api/me", headers=user.headers, json={"payment_note": "  PayNow 9123 4567  "})
+    assert r.status_code == 200 and r.json()["payment_note"] == "PayNow 9123 4567"
+    assert (await ctx.client.patch("/api/me", headers=user.headers, json={"display_name": "Al"})).json()[
+        "payment_note"] == "PayNow 9123 4567"  # untouched when omitted
+    assert (await ctx.client.patch("/api/me", headers=user.headers, json={"payment_note": "x" * 201})).status_code == 422
+    assert (await ctx.client.patch("/api/me", headers=user.headers,
+                                   json={"payment_note": "x" * 200})).json()["payment_note"] == "x" * 200
+    for empty in ("   ", "", None):
+        await ctx.client.patch("/api/me", headers=user.headers, json={"payment_note": "DuitNow 012"})
+        r = await ctx.client.patch("/api/me", headers=user.headers, json={"payment_note": empty})
+        assert r.status_code == 200 and r.json()["payment_note"] is None, empty
+
+
+async def test_public_share_shows_payment_note_only_when_owner_paid(ctx: Ctx) -> None:
+    owner = await ctx.user("alice")
+    other = await ctx.user("mallory")
+    await ctx.client.patch("/api/me", headers=owner.headers, json={"payment_note": "PayNow 9123 4567"})
+    await ctx.client.patch("/api/me", headers=other.headers, json={"payment_note": "Mallory's bank"})
+    bill, ids = await full_bill(ctx, owner)
+    link = (await ctx.client.post(f"/api/bills/{bill['id']}/share-links", headers=owner.headers,
+                                  json={"person_id": ids["B"]})).json()
+    pub = (await ctx.client.get(f"/api/public/share/{link['token']}")).json()
+    assert pub["payer_payment_note"] == "PayNow 9123 4567"
+    # A friend paid: never leak the owner's (or anyone else's) note.
+    await ctx.client.patch(f"/api/bills/{bill['id']}", headers=owner.headers, json={"payer_person_id": ids["C"]})
+    pub = (await ctx.client.get(f"/api/public/share/{link['token']}")).json()
+    assert pub["payer_payment_note"] is None and pub["payer_name"] == "Friend C"
+    assert "Mallory" not in (await ctx.client.get(f"/api/public/share/{link['token']}")).text
+    # Mallory's own bill shows only Mallory's note.
+    mbill = (await ctx.client.post("/api/bills", headers=other.headers, json={})).json()
+    mlink = (await ctx.client.post(f"/api/bills/{mbill['id']}/share-links", headers=other.headers)).json()
+    assert (await ctx.client.get(f"/api/public/share/{mlink['token']}")).json()["payer_payment_note"] == "Mallory's bank"
+
+
+async def test_health_reports_commit_without_db(ctx: Ctx) -> None:
+    assert (await ctx.client.get("/api/health")).json()["commit"] is None
+    ctx.settings.render_git_commit = "abc1234"
+    db, ctx.app.state.db = ctx.app.state.db, None  # any DB access would now raise
+    try:
+        r = await ctx.client.get("/api/health")
+        assert r.status_code == 200 and r.json() == {"status": "ok", "version": r.json()["version"],
+                                                     "commit": "abc1234"}
+    finally:
+        ctx.app.state.db = db
+        ctx.settings.render_git_commit = ""
