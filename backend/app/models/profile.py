@@ -88,6 +88,8 @@ class AppSettings(Base):
     global_monthly_llm_budget_micros: Mapped[int] = mapped_column(BigInteger, nullable=False)
     default_user_quota: Mapped[int] = mapped_column(Integer, nullable=False)
     scans_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
+    # "YYYY-MM" (APP_TIMEZONE) when Azure answered "quota exceeded": scans stay paused for that month.
+    provider_paused_month: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = updated_at_col()
 
     __table_args__ = (

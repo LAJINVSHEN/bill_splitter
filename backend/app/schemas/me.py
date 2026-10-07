@@ -34,7 +34,7 @@ class MePatch(InputModel):
     payment_note: Annotated[str | None, Field(max_length=200), AfterValidator(_blank_to_none)] = None
 
 
-PauseReason = Literal["scans_disabled", "user_quota", "global_page_cap", "llm_budget"]
+PauseReason = Literal["scans_disabled", "provider_quota", "user_quota", "global_page_cap", "llm_budget"]
 
 
 class UsageOut(OutputModel):

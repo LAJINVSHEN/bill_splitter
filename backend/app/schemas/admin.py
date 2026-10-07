@@ -121,11 +121,20 @@ class LlmConfigOut(OutputModel):
     backend: str
 
 
+class ProviderLimitsOut(OutputModel):
+    azure_di_monthly_page_limit: int  # hard provider ceiling (F0: 500)
+    azure_di_calls_per_minute_limit: int  # hard provider ceiling (F0: 20)
+    azure_di_calls_per_minute: int  # our process-wide limiter (≤ the ceiling)
+    effective_monthly_page_cap: int  # min(global_monthly_page_cap, azure_di_monthly_page_limit)
+    provider_paused_month: str | None  # "YYYY-MM" when Azure reported its quota exhausted
+
+
 class AdminSettingsOut(OutputModel):
     global_monthly_page_cap: int
     global_monthly_llm_budget_micros: int
     default_user_quota: int
     scans_enabled: bool
+    provider: ProviderLimitsOut
     llm: LlmConfigOut
     ocr_backend: str
     ocr_max_pdf_pages: int
@@ -141,3 +150,4 @@ class AdminSettingsPatch(InputModel):
     global_monthly_llm_budget_micros: Annotated[int, Field(ge=0, le=10_000_000_000)] | None = None
     default_user_quota: Quota | None = None
     scans_enabled: bool | None = None
+    provider_paused: bool | None = None  # false clears a provider-quota pause (e.g. after a false alarm)

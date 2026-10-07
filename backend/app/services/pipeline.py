@@ -74,6 +74,7 @@ async def mark_job_failed(db: AsyncSession, job_id: UUID, code: str, message: st
         return False
     job.status, job.error_code, job.error_message, job.retryable = status, code, message, retryable
     job.finished_at = _now()
+    job.pages_reserved = 0  # unspent reservation goes back to the pool
     await db.execute(update(Bill).where(Bill.id == job.bill_id, Bill.status == "scanning")
                      .values(status="draft", updated_at=func.now()))
     return True
@@ -140,14 +141,37 @@ class JobRunner:
         if not ok:
             raise JobGone
 
-    async def _record_usage(self, job_id: UUID, owner_id: UUID, **values: Any) -> None:
+    async def _record_usage(self, job_id: UUID, owner_id: UUID, *, release: int = 0, **values: Any) -> None:
+        """Usage row + job counters; ``release`` returns reserved pages once their call is done
+        (the real pages are now in usage_events, so they still count against the caps)."""
         async with self.sm() as db:
             db.add(UsageEvent(user_id=owner_id, job_id=job_id, **values))
             await db.execute(update(ExtractionJob).where(ExtractionJob.id == job_id).values(
                 pages_billed=ExtractionJob.pages_billed + values.get("pages", 0),
                 cost_micros=ExtractionJob.cost_micros + values.get("cost_micros", 0),
+                pages_reserved=func.greatest(ExtractionJob.pages_reserved - release, 0),
             ))
             await db.commit()
+
+    async def _guard_azure_call(self, estimate: int) -> None:
+        """Last line of defence before ANY Azure call: provider pause and the hard monthly ceiling
+        (the reservation gate normally makes this unreachable)."""
+        from app.services.usage import QUOTA_MESSAGES, month_ocr_pages, provider_paused
+
+        settings = self.svc.settings
+        async with self.sm() as db:
+            if await provider_paused(db, settings):
+                raise StageFailed("provider_quota", QUOTA_MESSAGES["provider_quota"], retryable=False)
+            if await month_ocr_pages(db, settings) + estimate > settings.azure_di_monthly_page_limit:
+                raise StageFailed("quota_global_page_cap", QUOTA_MESSAGES["global_page_cap"], retryable=True)
+
+    async def _pause_provider(self) -> None:
+        from app.services.usage import pause_provider_for_month
+
+        async with self.sm() as db:
+            month = await pause_provider_for_month(db, self.svc.settings)
+            await db.commit()
+        logger.error("Azure reported its monthly quota is exhausted: scans paused for %s", month)
 
     async def _heartbeat(self, job_id: UUID) -> None:
         interval = self.svc.settings.job_heartbeat_seconds
@@ -244,20 +268,26 @@ class JobRunner:
             except StorageError as exc:
                 raise StageFailed("file_missing", "A receipt photo is no longer available.", retryable=False) from exc
             estimate = svc.settings.ocr_max_pdf_pages if f.mime == "application/pdf" else 1
+            await self._guard_azure_call(estimate)
             try:
                 result = await svc.ocr.analyze(data, f.mime)
             except OcrError as exc:
-                await self._record_usage(job_id, owner_id, kind="ocr", provider=svc.ocr.provider,
+                await self._record_usage(job_id, owner_id, release=estimate, kind="ocr", provider=svc.ocr.provider,
                                          model="prebuilt-layout", pages=estimate if exc.submitted else 0, ok=False,
                                          error_code=exc.code)
+                if exc.code == "provider_quota":
+                    from app.services.usage import QUOTA_MESSAGES
+
+                    await self._pause_provider()
+                    raise StageFailed("provider_quota", QUOTA_MESSAGES["provider_quota"], retryable=False) from exc
                 raise StageFailed(exc.code, str(exc), exc.retryable) from exc
             except asyncio.CancelledError:
                 await asyncio.shield(self._record_usage(
-                    job_id, owner_id, kind="ocr", provider=svc.ocr.provider, model="prebuilt-layout",
-                    pages=estimate, ok=False, error_code="cancelled"))
+                    job_id, owner_id, release=estimate, kind="ocr", provider=svc.ocr.provider,
+                    model="prebuilt-layout", pages=estimate, ok=False, error_code="cancelled"))
                 raise
-            await self._record_usage(job_id, owner_id, kind="ocr", provider=svc.ocr.provider, model=result.model,
-                                     pages=result.pages, latency_ms=result.latency_ms, ok=True)
+            await self._record_usage(job_id, owner_id, release=estimate, kind="ocr", provider=svc.ocr.provider,
+                                     model=result.model, pages=result.pages, latency_ms=result.latency_ms, ok=True)
             async with self.sm() as db:
                 await repo.put_ocr_cache(db, owner_id, f.sha256, result.text, result.pages)
                 await db.execute(update(ReceiptFile).where(ReceiptFile.id == f.id).values(pages=result.pages))
@@ -351,6 +381,7 @@ class JobRunner:
             job.error_code = None if validation.ok else (validation.errors[0].code if validation.errors else None)
             job.error_message = None if validation.ok else validation.message
             job.retryable = False
+            job.pages_reserved = 0
             job.finished_at = _now()
             job.heartbeat_at = _now()
             job.timings = timings

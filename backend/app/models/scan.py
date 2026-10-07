@@ -51,6 +51,8 @@ class ExtractionJob(Base):
     detected_currency: Mapped[str | None] = mapped_column(String(3))
     idempotency_key: Mapped[str | None] = mapped_column(Text)
     pages_billed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # OCR pages reserved by the atomic quota gate and not yet billed (released per Azure call / at the end).
+    pages_reserved: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     timings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

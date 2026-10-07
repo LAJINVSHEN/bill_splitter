@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
-from app.core.periods import current_month_bounds, month_bounds, parse_month
+from app.core.periods import current_month_bounds, month_bounds, month_key, parse_month
 from app.errors import AppError, BadRequest, Conflict, NotFound
 from app.integrations.supabase_admin import EmailTaken, SupabaseAdmin, SupabaseAdminError
 from app.middleware.auth import CurrentUser
@@ -30,6 +30,7 @@ from app.schemas.admin import (
     LlmConfigOut,
     ModelUsage,
     PasswordReset,
+    ProviderLimitsOut,
     UsageTotals,
     UserUsage,
 )
@@ -200,6 +201,13 @@ def _settings_out(settings: Settings, row) -> AdminSettingsOut:  # noqa: ANN001
         global_monthly_page_cap=row.global_monthly_page_cap,
         global_monthly_llm_budget_micros=row.global_monthly_llm_budget_micros,
         default_user_quota=row.default_user_quota, scans_enabled=row.scans_enabled,
+        provider=ProviderLimitsOut(
+            azure_di_monthly_page_limit=settings.azure_di_monthly_page_limit,
+            azure_di_calls_per_minute_limit=settings.azure_di_calls_per_minute_limit,
+            azure_di_calls_per_minute=settings.azure_calls_per_minute_effective,
+            effective_monthly_page_cap=settings.effective_page_cap(row.global_monthly_page_cap),
+            provider_paused_month=row.provider_paused_month,
+        ),
         llm=LlmConfigOut(primary_model=settings.llm_primary_model,
                          primary_reasoning_effort=settings.llm_primary_reasoning_effort or None,
                          fallback_model=fallback[0] if fallback else None,
@@ -220,7 +228,15 @@ async def get_settings_out(db: AsyncSession, settings: Settings) -> AdminSetting
 
 
 async def patch_settings(db: AsyncSession, settings: Settings, data: AdminSettingsPatch) -> AdminSettingsOut:
+    limit = settings.azure_di_monthly_page_limit
+    if data.global_monthly_page_cap is not None and data.global_monthly_page_cap > limit:
+        raise AppError(422, "page_cap_above_provider_limit",
+                       f"The monthly page cap can't exceed the OCR provider's limit of {limit} pages "
+                       "(Azure free tier). Pick a lower number.", provider_limit=limit)
     row = await app_settings(db, settings, for_update=True)
+    if data.provider_paused is not None:
+        row.provider_paused_month = (month_key(datetime.now(UTC), settings.app_timezone)
+                                     if data.provider_paused else None)
     for field in ("global_monthly_page_cap", "global_monthly_llm_budget_micros", "default_user_quota",
                   "scans_enabled"):
         value = getattr(data, field)

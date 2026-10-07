@@ -87,7 +87,14 @@ class Settings(BaseSettings):
     azure_di_key: str = ""
     ocr_max_concurrency: int = 2
     ocr_max_pdf_pages: int = 2  # F0 only analyses the first 2 pages of a PDF
-    ocr_timeout_seconds: float = 90.0
+    ocr_timeout_seconds: float = 240.0  # whole analyze incl. rate-limit waits and polling
+    # Provider ceilings (Azure DI F0). Admins can't raise the app caps above these.
+    azure_di_monthly_page_limit: int = 500
+    azure_di_calls_per_minute_limit: int = 20
+    # Process-wide limiter on EVERY HTTP request to Azure (POST, poll GETs, SDK retries); ≤ the ceiling.
+    azure_di_calls_per_minute: int = 15
+    ocr_rate_wait_seconds: float = 90.0  # max wait for a limiter slot before failing ocr_rate_limited
+    ocr_poll_interval_seconds: float = 3.0
 
     # --- LLM (OpenAI) --------------------------------------------------------
     llm_backend: Literal["openai", "fake"] = "openai"
@@ -186,6 +193,14 @@ class Settings(BaseSettings):
             args["statement_cache_size"] = 0
             args["prepared_statement_name_func"] = lambda: f"__asyncpg_{uuid4()}__"
         return args
+
+    @property
+    def azure_calls_per_minute_effective(self) -> int:
+        return max(1, min(self.azure_di_calls_per_minute, self.azure_di_calls_per_minute_limit))
+
+    def effective_page_cap(self, admin_cap: int) -> int:
+        """Global monthly OCR page cap: the admin's setting, never above the provider ceiling."""
+        return min(admin_cap, self.azure_di_monthly_page_limit)
 
     @property
     def llm_budget_micros_default(self) -> int:

@@ -25,7 +25,7 @@ from app.repositories import scans as repo
 from app.schemas.scans import JobOut, ScanCreated, SignedUrlOut
 from app.services.container import Services
 from app.services.pipeline import mark_job_failed
-from app.services.usage import llm_budget_state, quota_error, quota_state
+from app.services.usage import llm_budget_state, lock_quota, quota_error, quota_state
 
 logger = logging.getLogger(__name__)
 
@@ -135,12 +135,13 @@ async def create_scan(db: AsyncSession, svc: Services, user: CurrentUser, bill_i
 
     files = _validate_uploads(svc, uploads)
     cached = set((await repo.cached_ocr(db, user.id, [sha for _, _, sha in files])).keys())
-    await _check_quota(db, svc, user, _estimate_pages(svc, files, cached))
+    estimate = _estimate_pages(svc, files, cached)
+    await _check_quota(db, svc, user, estimate)  # fast fail before uploading; re-checked under the lock below
 
     now = datetime.now(UTC)
     expires = now + timedelta(days=svc.settings.receipt_retention_days)
     job = ExtractionJob(id=uuid.uuid4(), bill_id=bill.id, owner_id=user.id, status="queued", attempts=1,
-                        idempotency_key=key, heartbeat_at=now, timings={})
+                        idempotency_key=key, heartbeat_at=now, timings={}, pages_reserved=estimate)
     rows: list[ReceiptFile] = []
     uploaded: list[str] = []
     try:
@@ -155,6 +156,14 @@ async def create_scan(db: AsyncSession, svc: Services, user: CurrentUser, bill_i
         await _cleanup(svc, uploaded)
         raise AppError(503, "storage_unavailable", "Couldn't store the receipt. Please try again.") from exc
 
+    # Atomic gate: check + reserve under one advisory lock (held until commit), so two scans
+    # near the cap can't both pass.
+    try:
+        await lock_quota(db)
+        await _check_quota(db, svc, user, estimate)
+    except AppError:
+        await _cleanup(svc, uploaded)
+        raise
     db.add(job)
     await db.flush()
     db.add_all(rows)
@@ -222,11 +231,13 @@ async def retry_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: 
     if other is not None:
         raise Conflict("scan_in_progress", "This bill is already being scanned.", job_id=str(other.id))
 
-    if job.ocr_text is None:
+    extra = 0
+    if job.ocr_text is None:  # retries go through the same gate; cached OCR costs 0 pages
         files = await repo.files_for_job(db, job.id)
         cached = set((await repo.cached_ocr(db, user.id, [f.sha256 for f in files])).keys())
         pdf_pages = svc.settings.ocr_max_pdf_pages
         extra = sum(pdf_pages if f.mime == "application/pdf" else 1 for f in files if f.sha256 not in cached)
+        await lock_quota(db)
         await _check_quota(db, svc, user, extra)
     else:
         used, budget = await llm_budget_state(db, svc.settings)
@@ -236,6 +247,7 @@ async def retry_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: 
 
     now = datetime.now(UTC)
     job.status, job.attempts, job.retryable = "queued", job.attempts + 1, False
+    job.pages_reserved = extra
     job.error_code = job.error_message = None
     job.finished_at = None
     job.heartbeat_at = now
