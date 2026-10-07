@@ -13,7 +13,7 @@ from uuid import UUID
 from sqlalchemy import delete, exists, insert, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.receipt_validation import infer_charge_kind
+from app.core.receipt_validation import ReceiptCharge, ReceiptItem, infer_charge_kind, validate_receipt
 from app.errors import BadRequest, Conflict, NotFound
 from app.middleware.auth import CurrentUser
 from app.models import Bill, BillCharge, BillItem, BillParticipant, ItemShare, ShareLink
@@ -211,9 +211,7 @@ async def replace_receipt(db: AsyncSession, bill: Bill, items: list[ItemSpec], c
     bill.grand_total_cents = grand_total_cents
     await db.flush()
 
-    # Re-validate from what is now stored to derive scenario + display percentages.
-    from app.core.receipt_validation import ReceiptCharge, ReceiptItem, validate_receipt
-
+    # Validate what is now stored to derive the scenario + display percentages.
     result = validate_receipt(
         [ReceiptItem(s.name, s.quantity, s.unit_price_cents, s.total_price_cents) for s in items],
         [ReceiptCharge(c.name, c.amount_cents) for c in charges],
