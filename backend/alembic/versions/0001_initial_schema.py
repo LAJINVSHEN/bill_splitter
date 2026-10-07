@@ -171,7 +171,7 @@ def upgrade() -> None:
     sa.Column('settled_amount_cents', sa.BigInteger(), nullable=True),
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.ForeignKeyConstraint(['bill_id'], ['bills.id'], name=op.f('fk_bill_participants_bill_id_bills'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['person_id'], ['people.id'], name=op.f('fk_bill_participants_person_id_people'), ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['person_id'], ['people.id'], name=op.f('fk_bill_participants_person_id_people'), initially='DEFERRED', deferrable=True),
     sa.PrimaryKeyConstraint('bill_id', 'person_id', name=op.f('pk_bill_participants'))
     )
     op.create_index('ix_bill_participants_person_id', 'bill_participants', ['person_id'], unique=False)

@@ -116,7 +116,7 @@ class Settings(BaseSettings):
 
     # --- Guardrails ----------------------------------------------------------
     rate_limit_enabled: bool = True
-    rate_limit_default: str = "120/minute"
+    rate_limit_default: str = "300/minute"
     rate_limit_scans: str = "10/minute;100/day"
     rate_limit_public: str = "30/minute"
     rate_limit_admin_create: str = "20/hour"

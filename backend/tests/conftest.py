@@ -142,7 +142,7 @@ def token_for(user_id: uuid.UUID | str, *, aud: str = "authenticated", exp_in: i
 
 
 @dataclass
-class TestUser:
+class AppUser:
     id: uuid.UUID
     username: str
     self_person_id: uuid.UUID
@@ -174,7 +174,7 @@ class Ctx:
         return self.services.auth_admin  # type: ignore[return-value]
 
     async def user(self, username: str = "alice", *, role: str = "member", must_change: bool = False,
-                   quota: int = 30, disabled: bool = False, currency: str = "SGD") -> TestUser:
+                   quota: int = 30, disabled: bool = False, currency: str = "SGD") -> AppUser:
         uid = uuid.uuid4()
         async with self.sm() as db:
             db.add(Profile(id=uid, username=username, email=f"{username}@test.local", display_name=username.title(),
@@ -185,7 +185,7 @@ class Ctx:
             me = Person(owner_id=uid, name=username.title(), is_self=True, color_seed=10)
             db.add(me)
             await db.commit()
-            return TestUser(id=uid, username=username, self_person_id=me.id, token=token_for(uid))
+            return AppUser(id=uid, username=username, self_person_id=me.id, token=token_for(uid))
 
     async def drain(self) -> None:
         await self.services.runner.drain()
@@ -226,5 +226,5 @@ async def ctx() -> AsyncIterator[Ctx]:
         await app.state.services.runner.drain(timeout=5)
 
 
-__all__ = ["BAD_EXTRACTION", "GOOD_EXTRACTION", "PDF", "PNG", "Ctx", "TestUser", "jpeg", "make_extraction",
+__all__ = ["BAD_EXTRACTION", "GOOD_EXTRACTION", "PDF", "PNG", "Ctx", "AppUser", "jpeg", "make_extraction",
            "token_for"]

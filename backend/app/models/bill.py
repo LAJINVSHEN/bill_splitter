@@ -107,8 +107,10 @@ class BillParticipant(Base):
     bill_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("bills.id", ondelete="CASCADE"), primary_key=True
     )
+    # Deferred (checked at COMMIT): a person can't be deleted while on a bill, but deleting a
+    # whole profile cascades through people *and* bills → participants without tripping it.
     person_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("people.id", ondelete="RESTRICT"), primary_key=True
+        UUID(as_uuid=True), ForeignKey("people.id", deferrable=True, initially="DEFERRED"), primary_key=True
     )
     position: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

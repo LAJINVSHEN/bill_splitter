@@ -1,7 +1,8 @@
 """FastAPI application factory.
 
 Middleware order (outermost first): ServerError → CORS → CatchAll(500 JSON) →
-BodySizeLimit → SlowAPI → routes. Errors produced inside therefore keep CORS headers.
+BodySizeLimit → routes. Errors produced inside therefore keep CORS headers.
+Rate limits are dependencies/decorators (see ``app.ratelimit``).
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi.middleware import SlowAPIMiddleware
 
 from app import __version__
 from app.api import build_api_router
@@ -114,7 +114,6 @@ def create_app(settings: Settings | None = None,
         return settings.max_json_body_bytes
 
     # add_middleware prepends: the last one added is the outermost.
-    app.add_middleware(SlowAPIMiddleware)
     app.add_middleware(BodySizeLimitMiddleware, limit_for=body_limit)
     app.add_middleware(CatchAllMiddleware)
     app.add_middleware(

@@ -10,3 +10,4 @@ debug_data
 .local
 .local-storage
 tests/.artifacts
+tests

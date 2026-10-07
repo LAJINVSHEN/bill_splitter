@@ -76,6 +76,7 @@ async def my_usage(db: AsyncSession, settings: Settings, user_id: UUID, user_quo
     _, start, end = current_month_bounds(datetime.now(UTC), settings.app_timezone)
     mine = await repo.month_usage(db, start, end, user_id)
     reason = state.pause_reason()
+    await db.commit()  # persists the lazily created app_settings row, if any
     return UsageOut(month=state.month, timezone=settings.app_timezone, pages_used=state.user_pages,
                     pages_quota=state.user_quota, pages_remaining=max(state.user_quota - state.user_pages, 0),
                     llm_calls=mine.llm_calls, cost_micros=mine.cost_micros,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import logging
 import time
 from pathlib import Path
 from typing import Protocol
@@ -13,6 +14,8 @@ from urllib.parse import quote
 import httpx
 
 from app.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class StorageError(Exception):
@@ -136,7 +139,30 @@ class SupabaseStorage:
         await self.client.aclose()
 
 
+class UnavailableStorage:
+    """Misconfigured storage: the API still starts (manual entry keeps working) and every
+    storage call fails with a clear error (scans → 503 storage_unavailable)."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    async def _fail(self, *args: object, **kwargs: object) -> None:
+        raise StorageError(self.reason)
+
+    put = get = delete = signed_url = _fail  # type: ignore[assignment]
+
+    async def aclose(self) -> None:
+        return None
+
+
 def build_storage(settings: Settings, api_base_url: str = "") -> Storage:
     if settings.storage_backend == "supabase":
-        return SupabaseStorage(settings.supabase_url, settings.supabase_service_role_key, settings.storage_bucket)
+        try:
+            return SupabaseStorage(settings.supabase_url, settings.supabase_service_role_key,
+                                   settings.storage_bucket)
+        except StorageError as exc:
+            logger.warning("Receipt storage disabled: %s", exc)
+            return UnavailableStorage(str(exc))  # type: ignore[return-value]
+    if settings.is_production:
+        logger.warning("STORAGE_BACKEND=local in production: receipt files live on the container disk")
     return LocalStorage(settings.local_storage_dir, settings.cron_secret or settings.supabase_jwt_secret, api_base_url)

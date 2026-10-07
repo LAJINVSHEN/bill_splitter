@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Backend · pytest on Postgres 16
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bill_splitter_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d bill_splitter_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/bill_splitter_test
+      DATABASE_SSL: disable
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Migrations apply to an empty database
+        run: alembic upgrade head
+
+      - name: Migrations roll back and re-apply
+        run: alembic downgrade base && alembic upgrade head
+
+      - name: Tests (incl. shared/split-vectors.json)
+        run: pytest
+
+      - name: Production image builds
+        working-directory: .
+        run: docker build -f backend/Dockerfile.render -t bill-splitter-api:ci backend
