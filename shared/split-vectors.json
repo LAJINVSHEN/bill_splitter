@@ -1,0 +1,2778 @@
+{
+  "version": 1,
+  "description": "Golden test vectors for bill split and receipt validation maths. The backend (backend/app/core) and the frontend mirror (frontend/src/lib/split) must both reproduce every 'expected' block exactly.",
+  "rules": {
+    "money": "Integer cents everywhere. Weights are decimal strings.",
+    "allocate": "allocate(total, weights): share_i = ROUND_HALF_UP(total * w_i / sum(w)) (halves away from zero; 0 if sum(w) == 0); then remainder = total - sum(shares) is added to the LARGEST share (the first one on ties).",
+    "item_modes": {
+      "single": "first share's person pays the whole item",
+      "equal": "allocate(item_total, [1, 1, ...]) in share order",
+      "weighted": "allocate(item_total, weights) (percentages, 'by shares', quick split by shares)",
+      "custom": "amount_cents used as given; if they don't sum to the item total an issue is reported",
+      "null": "unassigned (also: no valid shares, or all weights 0)"
+    },
+    "bill": "items_cents[p] = sum of p's item shares; totals = allocate(grand_total, items_cents in participant order). Unassigned items are excluded. Shares for non-participants are ignored (issue).",
+    "quick_split": "a single synthetic item whose total is the grand total, mode equal or weighted",
+    "is_complete": "participants exist and there are no issues (unassigned items are issues)",
+    "validation": "tolerance 5 cents; see backend/app/core/receipt_validation.py"
+  },
+  "legacy_frontend_note": "Cases with a 'legacy_frontend' block are where the old float implementation (useCalculations.ts) differs: it only fixed rounding differences larger than 0.01, so it could leave the sum 1 cent off the grand total, and Math.round(x*100) misrounds some half-cents (e.g. 5.005). The 'expected' values are the contract.",
+  "split_cases": [
+    {
+      "id": "single-basic",
+      "description": "Each item to one person; no charges.",
+      "tags": [
+        "single"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1200,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 800,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 2000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1200,
+          "B": 800
+        },
+        "totals_cents": {
+          "A": 1200,
+          "B": 800
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1200
+          },
+          "i2": {
+            "B": 800
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "single-one-person-has-everything",
+      "description": "B is on the bill but has no items.",
+      "tags": [
+        "single"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 550,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1550
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1550,
+          "B": 0
+        },
+        "totals_cents": {
+          "A": 1550,
+          "B": 0
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1000
+          },
+          "i2": {
+            "A": 550
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "single-person-bill",
+      "description": "Only one participant pays the whole grand total.",
+      "tags": [
+        "single",
+        "charges"
+      ],
+      "input": {
+        "participants": [
+          "A"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 2345,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service charge",
+            "amount_cents": 235,
+            "kind": "service"
+          }
+        ],
+        "grand_total_cents": 2580
+      },
+      "expected": {
+        "items_cents": {
+          "A": 2345
+        },
+        "totals_cents": {
+          "A": 2580
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 2345
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "equal-two-even",
+      "description": "Equal split, divides evenly.",
+      "tags": [
+        "multi-equal"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 500,
+          "B": 500
+        },
+        "totals_cents": {
+          "A": 500,
+          "B": 500
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 500,
+            "B": 500
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "equal-three-odd-cents",
+      "description": "10.00 split 3 ways: the extra cent goes to the first share.",
+      "tags": [
+        "multi-equal",
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 334,
+          "B": 333,
+          "C": 333
+        },
+        "totals_cents": {
+          "A": 334,
+          "B": 333,
+          "C": 333
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 334,
+            "B": 333,
+            "C": 333
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      },
+      "legacy_frontend": {
+        "items_cents": {
+          "A": 333,
+          "B": 333,
+          "C": 333
+        },
+        "totals_cents": {
+          "A": 333,
+          "B": 333,
+          "C": 333
+        }
+      }
+    },
+    {
+      "id": "equal-three-round-up",
+      "description": "20.00 split 3 ways: shares round up to 6.67, the first absorbs -1c.",
+      "tags": [
+        "multi-equal",
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 2000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 2000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 666,
+          "B": 667,
+          "C": 667
+        },
+        "totals_cents": {
+          "A": 666,
+          "B": 667,
+          "C": 667
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 666,
+            "B": 667,
+            "C": 667
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      },
+      "legacy_frontend": {
+        "items_cents": {
+          "A": 667,
+          "B": 667,
+          "C": 667
+        },
+        "totals_cents": {
+          "A": 667,
+          "B": 667,
+          "C": 667
+        }
+      }
+    },
+    {
+      "id": "equal-seven-way",
+      "description": "100.00 among 7: half-up shares 14.29, first share absorbs -3c (legacy rule).",
+      "tags": [
+        "multi-equal",
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C",
+          "D",
+          "E",
+          "F",
+          "G"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 10000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              },
+              {
+                "person": "D"
+              },
+              {
+                "person": "E"
+              },
+              {
+                "person": "F"
+              },
+              {
+                "person": "G"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 10000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1426,
+          "B": 1429,
+          "C": 1429,
+          "D": 1429,
+          "E": 1429,
+          "F": 1429,
+          "G": 1429
+        },
+        "totals_cents": {
+          "A": 1426,
+          "B": 1429,
+          "C": 1429,
+          "D": 1429,
+          "E": 1429,
+          "F": 1429,
+          "G": 1429
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1426,
+            "B": 1429,
+            "C": 1429,
+            "D": 1429,
+            "E": 1429,
+            "F": 1429,
+            "G": 1429
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "equal-subset-of-people",
+      "description": "Shared starter between A and B, mains single.",
+      "tags": [
+        "multi-equal",
+        "single"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "starter",
+            "name": "starter",
+            "total_cents": 1290,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              }
+            ]
+          },
+          {
+            "id": "m1",
+            "name": "m1",
+            "total_cents": 1580,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "m2",
+            "name": "m2",
+            "total_cents": 1420,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          },
+          {
+            "id": "m3",
+            "name": "m3",
+            "total_cents": 1650,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 5940
+      },
+      "expected": {
+        "items_cents": {
+          "A": 2225,
+          "B": 2065,
+          "C": 1650
+        },
+        "totals_cents": {
+          "A": 2225,
+          "B": 2065,
+          "C": 1650
+        },
+        "item_allocations": {
+          "starter": {
+            "A": 645,
+            "B": 645
+          },
+          "m1": {
+            "A": 1580
+          },
+          "m2": {
+            "B": 1420
+          },
+          "m3": {
+            "C": 1650
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "custom-amounts",
+      "description": "Custom amounts that add up to the item total.",
+      "tags": [
+        "multi-custom"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 3000,
+            "mode": "custom",
+            "shares": [
+              {
+                "person": "A",
+                "amount_cents": 1000
+              },
+              {
+                "person": "B",
+                "amount_cents": 2000
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 600,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 3600
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1000,
+          "B": 2000,
+          "C": 600
+        },
+        "totals_cents": {
+          "A": 1000,
+          "B": 2000,
+          "C": 600
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1000,
+            "B": 2000
+          },
+          "i2": {
+            "C": 600
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "custom-amounts-mismatch",
+      "description": "Custom amounts short of the item total: used as given, issue reported.",
+      "tags": [
+        "multi-custom",
+        "issues"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 3000,
+            "mode": "custom",
+            "shares": [
+              {
+                "person": "A",
+                "amount_cents": 1000
+              },
+              {
+                "person": "B",
+                "amount_cents": 1500
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 3000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1000,
+          "B": 1500
+        },
+        "totals_cents": {
+          "A": 1200,
+          "B": 1800
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1000,
+            "B": 1500
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [
+          "custom_amounts_mismatch"
+        ],
+        "is_complete": false
+      }
+    },
+    {
+      "id": "weighted-percent-60-40",
+      "description": "Percentage split 60/40.",
+      "tags": [
+        "multi-percentage"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 2500,
+            "mode": "weighted",
+            "shares": [
+              {
+                "person": "A",
+                "weight": "60"
+              },
+              {
+                "person": "B",
+                "weight": "40"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 2500
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1500,
+          "B": 1000
+        },
+        "totals_cents": {
+          "A": 1500,
+          "B": 1000
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1500,
+            "B": 1000
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "weighted-percent-thirds",
+      "description": "33.3333/33.3333/33.3334 % of 10.00.",
+      "tags": [
+        "multi-percentage",
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "weighted",
+            "shares": [
+              {
+                "person": "A",
+                "weight": "33.3333"
+              },
+              {
+                "person": "B",
+                "weight": "33.3333"
+              },
+              {
+                "person": "C",
+                "weight": "33.3334"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 334,
+          "B": 333,
+          "C": 333
+        },
+        "totals_cents": {
+          "A": 334,
+          "B": 333,
+          "C": 333
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 334,
+            "B": 333,
+            "C": 333
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "weighted-shares-2-1-1",
+      "description": "By shares 2:1:1.",
+      "tags": [
+        "multi-percentage"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 5000,
+            "mode": "weighted",
+            "shares": [
+              {
+                "person": "A",
+                "weight": "2"
+              },
+              {
+                "person": "B",
+                "weight": "1"
+              },
+              {
+                "person": "C",
+                "weight": "1"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 5000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 2500,
+          "B": 1250,
+          "C": 1250
+        },
+        "totals_cents": {
+          "A": 2500,
+          "B": 1250,
+          "C": 1250
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 2500,
+            "B": 1250,
+            "C": 1250
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "weighted-zero-weights",
+      "description": "All-zero weights: item treated as unassigned, issue reported.",
+      "tags": [
+        "issues"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "weighted",
+            "shares": [
+              {
+                "person": "A",
+                "weight": "0"
+              },
+              {
+                "person": "B",
+                "weight": "0"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 500,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1500
+      },
+      "expected": {
+        "items_cents": {
+          "A": 0,
+          "B": 500
+        },
+        "totals_cents": {
+          "A": 0,
+          "B": 1500
+        },
+        "item_allocations": {
+          "i2": {
+            "B": 500
+          }
+        },
+        "unassigned_item_ids": [
+          "i1"
+        ],
+        "issue_codes": [
+          "unassigned_item",
+          "zero_weights"
+        ],
+        "is_complete": false
+      }
+    },
+    {
+      "id": "tax-exclusive-service-gst",
+      "description": "Subtotal 30.00 + 10% service + 9% GST on top = 35.97.",
+      "tags": [
+        "tax-exclusive"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 2000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service charge 10%",
+            "amount_cents": 300,
+            "kind": "service"
+          },
+          {
+            "name": "GST 9%",
+            "amount_cents": 297,
+            "kind": "tax"
+          }
+        ],
+        "grand_total_cents": 3597
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1000,
+          "B": 2000
+        },
+        "totals_cents": {
+          "A": 1199,
+          "B": 2398
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1000
+          },
+          "i2": {
+            "B": 2000
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "tax-exclusive-noodle-house",
+      "description": "Mixed modes; service + GST + member discount.",
+      "tags": [
+        "tax-exclusive",
+        "discount",
+        "multi-equal"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C",
+          "D"
+        ],
+        "items": [
+          {
+            "id": "laksa",
+            "name": "laksa",
+            "total_cents": 1700,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              }
+            ]
+          },
+          {
+            "id": "ckt",
+            "name": "ckt",
+            "total_cents": 980,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "C"
+              }
+            ]
+          },
+          {
+            "id": "tea",
+            "name": "tea",
+            "total_cents": 780,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          },
+          {
+            "id": "wanton",
+            "name": "wanton",
+            "total_cents": 600,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "D"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service Charge 10%",
+            "amount_cents": 406,
+            "kind": "service"
+          },
+          {
+            "name": "GST 9%",
+            "amount_cents": 402,
+            "kind": "tax"
+          },
+          {
+            "name": "Member Discount",
+            "amount_cents": -200,
+            "kind": "discount"
+          }
+        ],
+        "grand_total_cents": 4668
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1110,
+          "B": 1110,
+          "C": 1240,
+          "D": 600
+        },
+        "totals_cents": {
+          "A": 1276,
+          "B": 1276,
+          "C": 1426,
+          "D": 690
+        },
+        "item_allocations": {
+          "laksa": {
+            "A": 850,
+            "B": 850
+          },
+          "ckt": {
+            "C": 980
+          },
+          "tea": {
+            "A": 260,
+            "B": 260,
+            "C": 260
+          },
+          "wanton": {
+            "D": 600
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "tax-inclusive",
+      "description": "Prices already include GST; items add up to the grand total.",
+      "tags": [
+        "tax-inclusive"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1500,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 3000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "GST (incl.)",
+            "amount_cents": 372,
+            "kind": "tax"
+          }
+        ],
+        "grand_total_cents": 4500
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1500,
+          "B": 3000
+        },
+        "totals_cents": {
+          "A": 1500,
+          "B": 3000
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1500
+          },
+          "i2": {
+            "B": 3000
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "tax-inclusive-shared",
+      "description": "Tax-inclusive with an equal-split item.",
+      "tags": [
+        "tax-inclusive",
+        "multi-equal"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "pizza",
+            "name": "pizza",
+            "total_cents": 2400,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          },
+          {
+            "id": "drink",
+            "name": "drink",
+            "total_cents": 450,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "VAT incl",
+            "amount_cents": 259,
+            "kind": "tax"
+          }
+        ],
+        "grand_total_cents": 2850
+      },
+      "expected": {
+        "items_cents": {
+          "A": 800,
+          "B": 800,
+          "C": 1250
+        },
+        "totals_cents": {
+          "A": 800,
+          "B": 800,
+          "C": 1250
+        },
+        "item_allocations": {
+          "pizza": {
+            "A": 800,
+            "B": 800,
+            "C": 800
+          },
+          "drink": {
+            "C": 450
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "discount-negative-charge",
+      "description": "A 5.00 discount spreads proportionally.",
+      "tags": [
+        "discount"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 2000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 2000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Discount",
+            "amount_cents": -500,
+            "kind": "discount"
+          }
+        ],
+        "grand_total_cents": 3500
+      },
+      "expected": {
+        "items_cents": {
+          "A": 2000,
+          "B": 2000
+        },
+        "totals_cents": {
+          "A": 1750,
+          "B": 1750
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 2000
+          },
+          "i2": {
+            "B": 2000
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "discount-line-item",
+      "description": "A negative item line (promo) shared equally.",
+      "tags": [
+        "discount",
+        "multi-equal"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1200,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 800,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          },
+          {
+            "id": "promo",
+            "name": "promo",
+            "total_cents": -400,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1600
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1000,
+          "B": 600
+        },
+        "totals_cents": {
+          "A": 1000,
+          "B": 600
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1200
+          },
+          "i2": {
+            "B": 800
+          },
+          "promo": {
+            "A": -200,
+            "B": -200
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "rounding-three-way-with-service",
+      "description": "10.00 equal 3 ways, grand 11.01: largest share gives back 1c.",
+      "tags": [
+        "rounding",
+        "multi-equal"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service",
+            "amount_cents": 101,
+            "kind": "service"
+          }
+        ],
+        "grand_total_cents": 1101
+      },
+      "expected": {
+        "items_cents": {
+          "A": 334,
+          "B": 333,
+          "C": 333
+        },
+        "totals_cents": {
+          "A": 367,
+          "B": 367,
+          "C": 367
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 334,
+            "B": 333,
+            "C": 333
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      },
+      "legacy_frontend": {
+        "items_cents": {
+          "A": 333,
+          "B": 333,
+          "C": 333
+        },
+        "totals_cents": {
+          "A": 367,
+          "B": 367,
+          "C": 367
+        }
+      }
+    },
+    {
+      "id": "rounding-largest-absorbs",
+      "description": "1:2:3 subtotals, grand 7.01: half-up gives 7.02, C (largest) absorbs -1c.",
+      "tags": [
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 100,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 200,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          },
+          {
+            "id": "i3",
+            "name": "i3",
+            "total_cents": 300,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Rounding",
+            "amount_cents": 101,
+            "kind": "rounding"
+          }
+        ],
+        "grand_total_cents": 701
+      },
+      "expected": {
+        "items_cents": {
+          "A": 100,
+          "B": 200,
+          "C": 300
+        },
+        "totals_cents": {
+          "A": 117,
+          "B": 234,
+          "C": 350
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 100
+          },
+          "i2": {
+            "B": 200
+          },
+          "i3": {
+            "C": 300
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      },
+      "legacy_frontend": {
+        "items_cents": {
+          "A": 100,
+          "B": 200,
+          "C": 300
+        },
+        "totals_cents": {
+          "A": 117,
+          "B": 234,
+          "C": 351
+        }
+      }
+    },
+    {
+      "id": "rounding-tie-first-wins",
+      "description": "Equal subtotals, grand 10.01: both round to 5.01, the first gives back 1c.",
+      "tags": [
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 500,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 500,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service",
+            "amount_cents": 1,
+            "kind": "service"
+          }
+        ],
+        "grand_total_cents": 1001
+      },
+      "expected": {
+        "items_cents": {
+          "A": 500,
+          "B": 500
+        },
+        "totals_cents": {
+          "A": 500,
+          "B": 501
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 500
+          },
+          "i2": {
+            "B": 500
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      },
+      "legacy_frontend": {
+        "items_cents": {
+          "A": 500,
+          "B": 500
+        },
+        "totals_cents": {
+          "A": 501,
+          "B": 501
+        }
+      }
+    },
+    {
+      "id": "unassigned-item",
+      "description": "Unassigned items don't count; grand is spread over assigned items.",
+      "tags": [
+        "issues"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 500,
+            "mode": null,
+            "shares": []
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1500
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1000,
+          "B": 0
+        },
+        "totals_cents": {
+          "A": 1500,
+          "B": 0
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1000
+          }
+        },
+        "unassigned_item_ids": [
+          "i2"
+        ],
+        "issue_codes": [
+          "unassigned_item"
+        ],
+        "is_complete": false
+      }
+    },
+    {
+      "id": "participant-without-items",
+      "description": "C is on the bill but owes nothing.",
+      "tags": [
+        "single"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 1000,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 2000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1000,
+          "B": 1000,
+          "C": 0
+        },
+        "totals_cents": {
+          "A": 1000,
+          "B": 1000,
+          "C": 0
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1000
+          },
+          "i2": {
+            "B": 1000
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "zero-subtotal-zero-grand",
+      "description": "Free items: everyone owes 0.",
+      "tags": [
+        "zero-subtotal"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 0,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 0,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 0
+      },
+      "expected": {
+        "items_cents": {
+          "A": 0,
+          "B": 0
+        },
+        "totals_cents": {
+          "A": 0,
+          "B": 0
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 0
+          },
+          "i2": {
+            "B": 0
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "zero-subtotal-nonzero-grand",
+      "description": "Nothing assigned: the remainder rule gives the total to the first person.",
+      "tags": [
+        "zero-subtotal",
+        "issues"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1200,
+            "mode": null,
+            "shares": []
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1200
+      },
+      "expected": {
+        "items_cents": {
+          "A": 0,
+          "B": 0
+        },
+        "totals_cents": {
+          "A": 1200,
+          "B": 0
+        },
+        "item_allocations": {},
+        "unassigned_item_ids": [
+          "i1"
+        ],
+        "issue_codes": [
+          "unassigned_item",
+          "zero_items_subtotal"
+        ],
+        "is_complete": false
+      }
+    },
+    {
+      "id": "zero-subtotal-free-items-with-charge",
+      "description": "Assigned items are all 0.00 but a 2.00 charge exists.",
+      "tags": [
+        "zero-subtotal",
+        "issues"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 0,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 0,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "B"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Packaging",
+            "amount_cents": 200,
+            "kind": "other"
+          }
+        ],
+        "grand_total_cents": 200
+      },
+      "expected": {
+        "items_cents": {
+          "A": 0,
+          "B": 0
+        },
+        "totals_cents": {
+          "A": 200,
+          "B": 0
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 0
+          },
+          "i2": {
+            "B": 0
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [
+          "zero_items_subtotal"
+        ],
+        "is_complete": false
+      }
+    },
+    {
+      "id": "no-participants",
+      "description": "No participants: nothing to compute, issue reported.",
+      "tags": [
+        "issues"
+      ],
+      "input": {
+        "participants": [],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": null,
+            "shares": []
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "items_cents": {},
+        "totals_cents": {},
+        "item_allocations": {},
+        "unassigned_item_ids": [
+          "i1"
+        ],
+        "issue_codes": [
+          "no_participants",
+          "unassigned_item"
+        ],
+        "is_complete": false
+      }
+    },
+    {
+      "id": "share-not-participant",
+      "description": "A share for someone not on the bill is ignored.",
+      "tags": [
+        "issues"
+      ],
+      "input": {
+        "participants": [
+          "A"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 1000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "Z"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 1000
+        },
+        "totals_cents": {
+          "A": 1000
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 1000
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [
+          "share_not_participant"
+        ],
+        "is_complete": false
+      }
+    },
+    {
+      "id": "quick-split-equal",
+      "description": "Quick split 100.00 equally among 3 (synthetic item).",
+      "tags": [
+        "quick-split"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "quick",
+            "name": "Total",
+            "total_cents": 10000,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "A"
+              },
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 10000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 3334,
+          "B": 3333,
+          "C": 3333
+        },
+        "totals_cents": {
+          "A": 3334,
+          "B": 3333,
+          "C": 3333
+        },
+        "item_allocations": {
+          "quick": {
+            "A": 3334,
+            "B": 3333,
+            "C": 3333
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "quick-split-shares",
+      "description": "Quick split 90.00 by shares 2:1.",
+      "tags": [
+        "quick-split"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B"
+        ],
+        "items": [
+          {
+            "id": "quick",
+            "name": "Total",
+            "total_cents": 9000,
+            "mode": "weighted",
+            "shares": [
+              {
+                "person": "A",
+                "weight": "2"
+              },
+              {
+                "person": "B",
+                "weight": "1"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 9000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 6000,
+          "B": 3000
+        },
+        "totals_cents": {
+          "A": 6000,
+          "B": 3000
+        },
+        "item_allocations": {
+          "quick": {
+            "A": 6000,
+            "B": 3000
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "quick-split-shares-odd",
+      "description": "Quick split 50.00 by shares 3:2:2.",
+      "tags": [
+        "quick-split",
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "quick",
+            "name": "Total",
+            "total_cents": 5000,
+            "mode": "weighted",
+            "shares": [
+              {
+                "person": "A",
+                "weight": "3"
+              },
+              {
+                "person": "B",
+                "weight": "2"
+              },
+              {
+                "person": "C",
+                "weight": "2"
+              }
+            ]
+          }
+        ],
+        "charges": [],
+        "grand_total_cents": 5000
+      },
+      "expected": {
+        "items_cents": {
+          "A": 2142,
+          "B": 1429,
+          "C": 1429
+        },
+        "totals_cents": {
+          "A": 2142,
+          "B": 1429,
+          "C": 1429
+        },
+        "item_allocations": {
+          "quick": {
+            "A": 2142,
+            "B": 1429,
+            "C": 1429
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      }
+    },
+    {
+      "id": "large-amounts",
+      "description": "Large amounts stay exact.",
+      "tags": [
+        "rounding"
+      ],
+      "input": {
+        "participants": [
+          "A",
+          "B",
+          "C"
+        ],
+        "items": [
+          {
+            "id": "i1",
+            "name": "i1",
+            "total_cents": 333333333,
+            "mode": "single",
+            "shares": [
+              {
+                "person": "A"
+              }
+            ]
+          },
+          {
+            "id": "i2",
+            "name": "i2",
+            "total_cents": 666666667,
+            "mode": "equal",
+            "shares": [
+              {
+                "person": "B"
+              },
+              {
+                "person": "C"
+              }
+            ]
+          }
+        ],
+        "charges": [
+          {
+            "name": "Tax",
+            "amount_cents": 99999999,
+            "kind": "tax"
+          }
+        ],
+        "grand_total_cents": 1099999999
+      },
+      "expected": {
+        "items_cents": {
+          "A": 333333333,
+          "B": 333333333,
+          "C": 333333334
+        },
+        "totals_cents": {
+          "A": 366666666,
+          "B": 366666666,
+          "C": 366666667
+        },
+        "item_allocations": {
+          "i1": {
+            "A": 333333333
+          },
+          "i2": {
+            "B": 333333333,
+            "C": 333333334
+          }
+        },
+        "unassigned_item_ids": [],
+        "issue_codes": [],
+        "is_complete": true
+      },
+      "legacy_frontend": {
+        "items_cents": {
+          "A": 333333333,
+          "B": 333333334,
+          "C": 333333334
+        },
+        "totals_cents": {
+          "A": 366666666,
+          "B": 366666667,
+          "C": 366666667
+        }
+      }
+    }
+  ],
+  "validation_cases": [
+    {
+      "id": "subtotal-shown-tax-exclusive",
+      "description": "Subtotal printed; items match; subtotal + charges = grand.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "2",
+            "unit_price_cents": 850,
+            "total_price_cents": 1700
+          },
+          {
+            "name": "B",
+            "quantity": "1",
+            "unit_price_cents": 980,
+            "total_price_cents": 980
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service 10%",
+            "amount_cents": 268
+          },
+          {
+            "name": "GST 9%",
+            "amount_cents": 265
+          }
+        ],
+        "subtotal_cents": 2680,
+        "grand_total_cents": 3213
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "tax_exclusive",
+        "items_total_cents": 2680,
+        "charges_total_cents": 533,
+        "final_subtotal_cents": 2680,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          "10.00",
+          "9.89"
+        ]
+      }
+    },
+    {
+      "id": "subtotal-shown-items-mismatch",
+      "description": "Items don't add up to the printed subtotal.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1000,
+            "total_price_cents": 1000
+          },
+          {
+            "name": "B",
+            "quantity": "1",
+            "unit_price_cents": 500,
+            "total_price_cents": 500
+          }
+        ],
+        "charges": [
+          {
+            "name": "GST",
+            "amount_cents": 135
+          }
+        ],
+        "subtotal_cents": 1600,
+        "grand_total_cents": 1735
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 1500,
+        "charges_total_cents": 135,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "items_subtotal_mismatch"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "subtotal-shown-grand-mismatch",
+      "description": "Subtotal + charges != grand total.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1000,
+            "total_price_cents": 1000
+          }
+        ],
+        "charges": [
+          {
+            "name": "GST",
+            "amount_cents": 90
+          }
+        ],
+        "subtotal_cents": 1000,
+        "grand_total_cents": 1200
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 1000,
+        "charges_total_cents": 90,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "grand_total_mismatch"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "no-subtotal-no-charges-match",
+      "description": "No subtotal, no charges, items == grand.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1250,
+            "total_price_cents": 1250
+          },
+          {
+            "name": "B",
+            "quantity": "2",
+            "unit_price_cents": 375,
+            "total_price_cents": 750
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 2000
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "no_taxes",
+        "items_total_cents": 2000,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": 2000,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "no-subtotal-no-charges-mismatch",
+      "description": "No subtotal, no charges, items != grand.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1250,
+            "total_price_cents": 1250
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 2000
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 1250,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "items_grand_mismatch"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "tax-inclusive-detected",
+      "description": "Items == grand although taxes are listed (prices include tax).",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 2180,
+            "total_price_cents": 2180
+          },
+          {
+            "name": "B",
+            "quantity": "1",
+            "unit_price_cents": 1090,
+            "total_price_cents": 1090
+          }
+        ],
+        "charges": [
+          {
+            "name": "GST incl",
+            "amount_cents": 270
+          }
+        ],
+        "subtotal_cents": null,
+        "grand_total_cents": 3270
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "tax_inclusive",
+        "items_total_cents": 3270,
+        "charges_total_cents": 270,
+        "final_subtotal_cents": 3270,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          "9.00"
+        ]
+      }
+    },
+    {
+      "id": "tax-exclusive-detected",
+      "description": "Items == grand - charges.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 2000,
+            "total_price_cents": 2000
+          },
+          {
+            "name": "B",
+            "quantity": "1",
+            "unit_price_cents": 1000,
+            "total_price_cents": 1000
+          }
+        ],
+        "charges": [
+          {
+            "name": "Service",
+            "amount_cents": 300
+          },
+          {
+            "name": "GST",
+            "amount_cents": 297
+          }
+        ],
+        "subtotal_cents": null,
+        "grand_total_cents": 3597
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "tax_exclusive",
+        "items_total_cents": 3000,
+        "charges_total_cents": 597,
+        "final_subtotal_cents": 3000,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          "10.00",
+          "9.90"
+        ]
+      }
+    },
+    {
+      "id": "discount-tax-exclusive",
+      "description": "Negative charge (discount) still reconciles.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 2000,
+            "total_price_cents": 2000
+          }
+        ],
+        "charges": [
+          {
+            "name": "GST",
+            "amount_cents": 180
+          },
+          {
+            "name": "Discount",
+            "amount_cents": -500
+          }
+        ],
+        "subtotal_cents": null,
+        "grand_total_cents": 1680
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "tax_exclusive",
+        "items_total_cents": 2000,
+        "charges_total_cents": -320,
+        "final_subtotal_cents": 2000,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          "9.00",
+          "-25.00"
+        ]
+      }
+    },
+    {
+      "id": "neither-scenario",
+      "description": "Items match neither the grand total nor grand - charges.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1000,
+            "total_price_cents": 1000
+          }
+        ],
+        "charges": [
+          {
+            "name": "GST",
+            "amount_cents": 90
+          }
+        ],
+        "subtotal_cents": null,
+        "grand_total_cents": 1500
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 1000,
+        "charges_total_cents": 90,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "no_scenario_matches"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": [
+          null
+        ]
+      }
+    },
+    {
+      "id": "grand-total-missing",
+      "description": "Grand total 0 is invalid.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1000,
+            "total_price_cents": 1000
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 0
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 1000,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "grand_total_missing"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "within-tolerance",
+      "description": "4 cents off is accepted (tolerance 5c).",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1004,
+            "total_price_cents": 1004
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "no_taxes",
+        "items_total_cents": 1004,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": 1000,
+        "error_codes": [],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "just-outside-tolerance",
+      "description": "6 cents off is rejected.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "1",
+            "unit_price_cents": 1006,
+            "total_price_cents": 1006
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 1006,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "items_grand_mismatch"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "item-math-warning",
+      "description": "qty x unit != line total: warning only, still ok.",
+      "input": {
+        "items": [
+          {
+            "name": "A",
+            "quantity": "3",
+            "unit_price_cents": 400,
+            "total_price_cents": 1000
+          },
+          {
+            "name": "B",
+            "quantity": "1",
+            "unit_price_cents": 500,
+            "total_price_cents": 500
+          }
+        ],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 1500
+      },
+      "expected": {
+        "ok": true,
+        "tax_scenario": "no_taxes",
+        "items_total_cents": 1500,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": 1500,
+        "error_codes": [],
+        "warning_item_indexes": [
+          0
+        ],
+        "charge_percents": []
+      }
+    },
+    {
+      "id": "no-items",
+      "description": "No items at all.",
+      "input": {
+        "items": [],
+        "charges": [],
+        "subtotal_cents": null,
+        "grand_total_cents": 1000
+      },
+      "expected": {
+        "ok": false,
+        "tax_scenario": null,
+        "items_total_cents": 0,
+        "charges_total_cents": 0,
+        "final_subtotal_cents": null,
+        "error_codes": [
+          "no_items"
+        ],
+        "warning_item_indexes": [],
+        "charge_percents": []
+      }
+    }
+  ]
+}
