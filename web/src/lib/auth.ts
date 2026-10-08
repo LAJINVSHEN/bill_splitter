@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { env } from './env'
+import { oauthErrorMessage } from './oauth'
 
 /**
  * One interface over two implementations:
@@ -15,6 +16,8 @@ export interface AuthClient {
   updatePassword(password: string): Promise<void>
   signOut(): Promise<void>
   onChange(cb: (signedIn: boolean) => void): () => void
+  /** Why the last Google sign-in failed (read from the return URL), until the next sign-in attempt. */
+  oauthError(): string | null
   readonly supportsGoogle: boolean
 }
 
@@ -28,11 +31,15 @@ export function usernameToEmail(username: string): string {
 const REFRESH_MARGIN_S = 60
 
 function createSupabaseAuth(): AuthClient {
+  // Read a failed Google return before supabase-js looks at the URL, then drop the params so a reload doesn't repeat it.
+  let oauthError = oauthErrorMessage(window.location.search, window.location.hash)
+  if (oauthError) window.history.replaceState(null, '', window.location.pathname)
   const sb: SupabaseClient = createClient(env.supabaseUrl, env.supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, flowType: 'pkce', storageKey: 'even.auth' },
   })
   return {
     supportsGoogle: true,
+    oauthError: () => oauthError,
     async hasSession() {
       const { data } = await sb.auth.getSession()
       return Boolean(data.session)
@@ -50,10 +57,12 @@ function createSupabaseAuth(): AuthClient {
       return session.access_token
     },
     async signInWithPassword(username, password) {
+      oauthError = null
       const { error } = await sb.auth.signInWithPassword({ email: usernameToEmail(username), password })
       if (error) throw new AuthError(error.status === 400 ? 'That username and password don’t match.' : error.message)
     },
     async signInWithGoogle() {
+      oauthError = null
       const { error } = await sb.auth.signInWithOAuth({
         provider: 'google',
         options: { redirectTo: window.location.origin, scopes: 'openid email profile' },
@@ -111,6 +120,7 @@ function createDevAuth(): AuthClient {
   }
   return {
     supportsGoogle: false,
+    oauthError: () => null,
     async hasSession() {
       return Boolean(read())
     },

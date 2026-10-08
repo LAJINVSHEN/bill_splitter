@@ -16,6 +16,6 @@ Tick items off as you go. Agents check this file at the start of each phase.
 
 ## Later (the agent will prompt with exact values)
 
-- [ ] **Google OAuth client** (only for Google sign-in): Google Cloud → OAuth client (Web), with JS origins and the Supabase callback URI the agent gives you.
+- [x] **Google OAuth client** (done 2026-10-08) (only for Google sign-in): Google Cloud → OAuth client (Web), with JS origins and the Supabase callback URI the agent gives you.
 - [ ] **Render env vars** if service creation via API isn't possible.
 - [ ] **Rotate keys** that were ever shared outside `.env`.

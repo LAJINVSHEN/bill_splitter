@@ -217,15 +217,24 @@ def verify_google(supabase_url: str, client_id: str, site: str) -> int:
         def redirect_request(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
             return None
 
+    import time
+
     url = f"{supabase_url}/auth/v1/authorize?provider=google&redirect_to={urllib.parse.quote(site, safe='')}"
-    try:
-        urllib.request.build_opener(NoRedirect).open(url, timeout=30)
-        location = ""
-    except urllib.error.HTTPError as exc:
-        location = exc.headers.get("Location", "") if exc.code in (302, 303) else ""
-    query = urllib.parse.parse_qs(urllib.parse.urlparse(location).query)
-    ok = (location.startswith("https://accounts.google.com/") and query.get("client_id") == [client_id]
-          and query.get("redirect_uri") == [f"{supabase_url}/auth/v1/callback"])
+    ok = False
+    # A fresh provider config takes a few seconds to reach the auth server.
+    for attempt in range(6):
+        if attempt:
+            time.sleep(5)
+        try:
+            urllib.request.build_opener(NoRedirect).open(url, timeout=30)
+            location = ""
+        except urllib.error.HTTPError as exc:
+            location = exc.headers.get("Location", "") if exc.code in (302, 303) else ""
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(location).query)
+        ok = (location.startswith("https://accounts.google.com/") and query.get("client_id") == [client_id]
+              and query.get("redirect_uri") == [f"{supabase_url}/auth/v1/callback"])
+        if ok:
+            break
     print(f"  [{'PASS' if ok else 'FAIL'}] authorize → Google with this client id and the Supabase callback")
     return 0 if ok else 1
 
