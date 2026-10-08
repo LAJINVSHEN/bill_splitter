@@ -135,8 +135,9 @@ def create_service(api: Api, owner_id: str, name: str, env_vars: dict[str, str])
         "ownerId": owner_id,
         "repo": f"https://github.com/{GITHUB_REPO}",
         "branch": "main",
-        "autoDeploy": "no",
-        "autoDeployTrigger": "off",  # GitHub Actions is the only deploy path (tests + kill switch)
+        # GitHub Actions is the only deploy path (tests + kill switch). The API rejects the legacy
+        # `autoDeploy` field alongside `autoDeployTrigger` (2026-10-08), so only the latter is sent.
+        "autoDeployTrigger": "off",
         "envVars": [{"key": k, "value": v} for k, v in env_vars.items()],
         "serviceDetails": {
             "runtime": "docker",
@@ -173,7 +174,7 @@ def fix_drift(api: Api, svc: dict) -> None:
     patch: dict = {}
     details: dict = {}
     if svc.get("autoDeployTrigger", "off") != "off" or svc.get("autoDeploy") == "yes":
-        patch.update({"autoDeploy": "no", "autoDeployTrigger": "off"})
+        patch["autoDeployTrigger"] = "off"
     if sd.get("plan") != "free":
         details["plan"] = "free"
     if sd.get("healthCheckPath") != HEALTH_PATH:

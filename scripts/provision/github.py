@@ -7,9 +7,10 @@
 Prerequisite: `gh auth login --scopes workflow` (the owner, once). Values come from
 .env.production.local / .env and are piped to `gh secret set` on STDIN, never on the command line.
 
-Repository secrets:   VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_AUTH_EMAIL_DOMAIN,
-                      CRON_SECRET, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+Repository secrets:   CRON_SECRET (the scheduled jobs run without an environment)
 Environment `production` (deployable from `main` only):
+                      VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_AUTH_EMAIL_DOMAIN,
+                      CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID,
                       RENDER_API_KEY + RENDER_SERVICE_ID   (--render-auth api, default), or
                       RENDER_DEPLOY_HOOK_URL                (--render-auth hook; copy it from the dashboard)
 Repository variables: API_BASE_URL, PAGES_URL, CLOUDFLARE_PROJECT_NAME,
@@ -25,8 +26,11 @@ import subprocess
 
 from _common import GITHUB_REPO, Env, die, step
 
-REPO_SECRETS = ["VITE_API_URL", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_AUTH_EMAIL_DOMAIN",
-                "CRON_SECRET", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
+# Repo-level only what the scheduled jobs need (they run without an environment). Everything a
+# deploy uses lives in the `production` environment, which only `main` can use.
+REPO_SECRETS = ["CRON_SECRET"]
+DEPLOY_SECRETS = ["VITE_API_URL", "VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_AUTH_EMAIL_DOMAIN",
+                  "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
 REPO_VARIABLES = ["API_BASE_URL", "PAGES_URL", "CLOUDFLARE_PROJECT_NAME"]
 # Owner tokens live in .env; everything else is production output and must never fall back to the
 # LOCAL dev values in .env (e.g. the dev CRON_SECRET or an empty VITE_API_URL).
@@ -86,8 +90,8 @@ def main() -> int:
         else:
             print(f"  default branch is {current!r}; not touching it")
 
-    env_secrets = (["RENDER_API_KEY", "RENDER_SERVICE_ID"] if args.render_auth == "api"
-                   else ["RENDER_DEPLOY_HOOK_URL"])
+    env_secrets = DEPLOY_SECRETS + (["RENDER_API_KEY", "RENDER_SERVICE_ID"] if args.render_auth == "api"
+                                    else ["RENDER_DEPLOY_HOOK_URL"])
     missing = [k for k in REPO_SECRETS + env_secrets + REPO_VARIABLES if not value(k)]
     if missing:
         msg = f"not set in .env/.env.production.local: {', '.join(missing)} (run the earlier scripts first)"
