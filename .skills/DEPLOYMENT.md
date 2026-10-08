@@ -1,5 +1,7 @@
 # Deployment runbook — even (P5)
 
+> **Status 2026-10-08: provisioned and live.** App https://even-split.pages.dev · API https://even-api-183n.onrender.com · Supabase project `even` (`inkmavvduytpsitevqru`, ap-southeast-1). Accounts are **shared with GoodDaysAhead** (same Supabase org, Render workspace and Cloudflare account; see §7 for the shared free-tier budget). Details: [HANDOVER_DEPLOY_20261008.md](HANDOVER_DEPLOY_20261008.md).
+
 > Stack (BRIEF §2, playbook §2): Cloudflare Pages (Direct Upload from Actions) · Render Free Docker, Singapore · Supabase Free, `ap-southeast-1` · GitHub Actions. $0/month.
 > Every step is a script in `scripts/provision/` (Python 3 stdlib, no installs). All are **idempotent**: re-running one reuses what exists and only changes drift. All accept `--dry-run`. None print secret values.
 
@@ -7,7 +9,7 @@
 
 | File | Holds | Written by |
 |---|---|---|
-| `.env` (root, gitignored) | Owner tokens (`SUPABASE_ACCESS_TOKEN`, `RENDER_API_KEY`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`), app keys (`OPENAI_API_KEY`, `AZURE_DI_*`), optional `GOOGLE_CLIENT_ID/SECRET`, and **local dev** values | owner |
+| `.env` (root, gitignored) | Owner tokens (`SUPABASE_ACCESS_TOKEN` or its alias `SUPABASE_DEVELOPER_TOKEN`, `RENDER_API_KEY` or `RENDERS_DEVELOPER_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`), app keys (`OPENAI_API_KEY`, `AZURE_DI_*`), optional `GOOGLE_CLIENT_ID/SECRET`, and **local dev** values | owner |
 | `.env.production.local` (root, gitignored) | All **production** values: Supabase URL/keys, `DATABASE_URL`, `CRON_SECRET`, `PAGES_URL`, `API_BASE_URL`, `VITE_*` … | the scripts |
 
 Production output deliberately does **not** go into `.env`. If it did, `docker compose`, the Vite dev server (`envDir: '..'`) and any local `uvicorn` would silently point at the production DB and Auth. The scripts read `.env.production.local` → `.env` → process env. For production-only keys they never fall back to the dev values in `.env`. `vite build` also reads `.env.production.local`, so a local production build matches CI.
@@ -20,7 +22,7 @@ Run from the repo root in **your own terminal**. Steps 1–2 and 9 are manual. E
 |---|---|---|
 | 1 | `gh auth login --scopes workflow` | One-time CLI login (browser). |
 | 2 | Re-link and push the code (below) | `main` must exist with this code before Render can build it. |
-| 3 | `python scripts/provision/cloudflare.py` | Pages project `even` (Direct Upload, production branch `main`). Writes `PAGES_URL`. |
+| 3 | `python scripts/provision/cloudflare.py` | Pages project `even-split` (Direct Upload, production branch `main`; `even.pages.dev` is taken). Writes `PAGES_URL`. |
 | 4 | `python scripts/provision/supabase.py` | Project `even` in `ap-southeast-1`: DB password generated and saved **before** create. Waits until healthy, then fetches keys, JWT secret and the session-pooler `DATABASE_URL`. Auth: signups off, Site URL = Pages, redirect allow-list. Creates the private `receipts` bucket. |
 | 5 | `python scripts/provision/render.py` | Free Docker service `even-api` (Singapore, auto-deploy **off**, health `/api/health`) with all env vars. Its first deploy starts on create. Writes `RENDER_SERVICE_ID`, `API_BASE_URL`, `VITE_API_URL`. If Render refuses a free create via the API, it prints 6 dashboard steps; do them, then re-run. |
 | 6 | `python scripts/provision/github.py --enable-deploy` | Sets the secrets, the variables and the `production` environment (main only), and flips the kill switch on. |
@@ -31,18 +33,7 @@ Run from the repo root in **your own terminal**. Steps 1–2 and 9 are manual. E
 
 Steps 3–6 in one go: `python scripts/provision/all.py --enable-deploy` (stops at the first failure; re-run after fixing).
 
-**Step 2 — re-link and push** (the remote `master` has README commit `00cec4e` that local lacks):
-
-```sh
-git remote add origin https://github.com/GeorgePPP/bill_splitter.git
-git fetch origin
-git switch production-rebuild
-git merge origin/master            # keep our README if it conflicts
-python scripts/provision/github.py --rename-default-branch   # remote master → main (branch-only run is fine)
-git push -u origin production-rebuild:main
-```
-
-With `CLOUD_DEPLOY_ENABLED` unset, this push runs only CI. The deploy workflows skip, and the cron jobs skip until `API_BASE_URL` exists.
+**Step 2 — done (2026-10-08).** `origin` is `LAJINVSHEN/bill_splitter`, the default branch is `main`, and PR #2 (`production-rebuild`) was merged with a merge commit. `main` is the trunk: work on short-lived branches and merge to `main` to deploy.
 
 **Why this order:** the Pages URL is an input to Supabase Auth (Site URL and redirects) and to Render CORS. Supabase values are inputs to Render. All of it feeds GitHub. If you ran them in a different order, re-run the earlier script: it only patches what changed. After any env change, `python scripts/provision/render.py deploy --wait` applies it.
 
@@ -56,8 +47,8 @@ With `CLOUD_DEPLOY_ENABLED` unset, this push runs only CI. The deploy workflows 
 
 | Name | Local `.env` | `.env.production.local` | Render env | GitHub |
 |---|---|---|---|---|
-| `SUPABASE_ACCESS_TOKEN`, `RENDER_API_KEY` | ✔ owner | | | `RENDER_API_KEY`: `production` env secret |
-| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | ✔ owner | | | repo secrets |
+| `SUPABASE_ACCESS_TOKEN`, `RENDER_API_KEY` (aliases above) | ✔ owner | | | `RENDER_API_KEY`: `production` env secret |
+| `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | ✔ owner | | | `production` env secrets |
 | `OPENAI_API_KEY`, `AZURE_DI_ENDPOINT`, `AZURE_DI_KEY` | ✔ owner | (optional override) | ✔ | |
 | `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD` | | ✔ | | |
 | `DATABASE_URL` (session pooler `:5432`) | dev value | ✔ | ✔ | |
@@ -67,7 +58,7 @@ With `CLOUD_DEPLOY_ENABLED` unset, this push runs only CI. The deploy workflows 
 | `CRON_SECRET` (new prod value, ≠ dev) | dev value | ✔ | ✔ | repo secret (same value) |
 | `PAGES_URL` | | ✔ | as `PUBLIC_APP_URL` + `CORS_ORIGINS` | repo variable |
 | `API_BASE_URL` (= `VITE_API_URL`) | | ✔ | | repo variable |
-| `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_AUTH_EMAIL_DOMAIN` | dev values | ✔ | | repo secrets (build-time) |
+| `VITE_API_URL`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_AUTH_EMAIL_DOMAIN` | dev values | ✔ | | `production` env secrets (build-time) |
 | `RENDER_SERVICE_ID` | | ✔ | | `production` env secret |
 | `RENDER_DEPLOY_HOOK_URL` *(alternative)* | owner, from dashboard | | | `production` env secret (`github.py --render-auth hook`) |
 | `CLOUDFLARE_PROJECT_NAME` | | ✔ (`even`) | | repo variable |
@@ -85,7 +76,7 @@ Render also gets fixed values: `ENVIRONMENT=production`, `SUPABASE_ADMIN_BACKEND
 | `ci.yml` | PR, push to `main`, manual | backend: Alembic up/down/up + pytest on Postgres 16 + prod image build · frontend: Node 24, `npm ci`, `typecheck`, `build`, `test` in `web/` · E2E placeholder (commented) |
 | `deploy-backend-render.yml` | push to `main` on `backend/**`, `shared/**`, `render.yaml`; manual | migrations + pytest on Postgres 16 → `render.py deploy --commit $GITHUB_SHA --wait` → `smoke.py --skip-pages --maintenance-guard`. Concurrency `render-backend-production` (cancel in progress). 30-min timeout |
 | `deploy-frontend-cloudflare.yml` | push to `main` on `web/**`, `shared/**`; manual | fails fast on missing `VITE_*`/Cloudflare secrets → `npm ci`, tests, build → checks `dist/_redirects` → `wrangler pages deploy web/dist --branch=main` (`cloudflare/wrangler-action@v4`) → smoke. Concurrency `cloudflare-pages-production`. `VITE_AUTH_MODE` is never set |
-| `cron.yml` | `*/10 23 * * *` + `*/10 0-16 * * *` (07:00–01:00 SGT), `23 2 * * *` (10:23 SGT), manual | keep-warm `GET /api/health`, which only warns on failure · daily `POST /api/internal/maintenance` (warm-up 6×20 s, 3 attempts, prints status + counts only). `cancel-in-progress: false` |
+| `cron.yml` | `30-59/10 3`, `*/10 4-5`, `*/10 10-14` UTC (11:30–14:00 + 18:00–23:00 SGT), `23 4 * * *` (12:23 SGT), manual | keep-warm `GET /api/health`, which only warns on failure · daily `POST /api/internal/maintenance` (warm-up 6×20 s, 3 attempts, prints status + counts only). `cancel-in-progress: false` |
 
 Every job has `timeout-minutes` and `permissions: contents: read`. Push deploys need `CLOUD_DEPLOY_ENABLED == 'true'`. Manual runs skip that check but only work from `main`.
 
@@ -100,8 +91,8 @@ Every job has `timeout-minutes` and `permissions: contents: read`. Push deploys 
 ## 7. Free-tier guardrails (cloud side) — check once after provisioning
 
 - [ ] **Supabase:** org on Free, so there are hard caps and no overage. If you ever upgrade, keep the Spend Cap **ON**. Only 2 active Free projects per org. Daily maintenance hits the DB, so the 7-day pause never triggers. Signups are **disabled**. Anonymous and phone providers are off. Bucket `receipts` is private (4 MB, JPEG/PNG/HEIF/PDF).
-- [ ] **Render:** instance type **Free**, 1 instance, no autoscaling, no disk, no paid Postgres/Key Value, auto-deploy off, PR previews off. `render.py` checks and fixes all of this. Keep-warm uses about 558 of the 750 instance-hours a month. Don't add other free services to this workspace unless the hours allow.
-- [ ] **GitHub Actions:** public repo, so minutes are free. Every job has a timeout. If the repo ever goes private, thin the keep-warm schedule (about 3,300 min/month vs 2,000 free). Scheduled workflows stop after 60 days without repo activity: re-enable them in the Actions tab.
+- [ ] **Render:** instance type **Free**, 1 instance, no autoscaling, no disk, no paid Postgres/Key Value, auto-deploy off, PR previews off. `render.py` checks and fixes all of this (it sends only `autoDeployTrigger`; the API rejects the legacy `autoDeploy` field next to it). The 750 instance-hours are **per workspace** and GoodDaysAhead's hourly cron already uses ~240–300 h, so even's keep-warm is peak-hours only (~240 h). Recompute before widening it or adding services: over 750 h suspends both apps until the month resets.
+- [ ] **GitHub Actions:** public repo, so minutes are free. Every job has a timeout. If the repo ever goes private, keep-warm costs about 1,400 of the 2,000 free minutes/month. Scheduled workflows stop after 60 days without repo activity: re-enable them in the Actions tab.
 - [ ] **Cloudflare:** Direct Upload means no build minutes. The token is scoped to one account and *Cloudflare Pages: Edit* only.
 - [ ] **OpenAI / Azure:** OpenAI project budget set, and `GLOBAL_MONTHLY_LLM_BUDGET_USD` slightly below it (Render env). Azure DI on **F0**, with `GLOBAL_MONTHLY_PAGE_CAP` below 500.
 - [ ] **Secrets hygiene:** both env files are gitignored. Never paste them, deploy-hook URLs or OAuth callback URLs (`#access_token=…`) into chat or logs.
@@ -111,7 +102,7 @@ Every job has `timeout-minutes` and `permissions: contents: read`. Push deploys 
 Render Free sleeps after about 15 minutes idle, and the first request then takes about 1 minute. Three things soften this:
 
 - The SPA fires `GET /api/health` on load (`web/src/lib/api.ts`), so the API wakes while the user is still on the first screen.
-- The keep-warm cron keeps the API awake from 07:00 to 01:00 SGT.
+- The keep-warm cron keeps the API awake at peak hours (11:30–14:00 and 18:00–23:00 SGT).
 - An in-progress scan polls `/api/jobs/{id}`, which keeps the instance awake.
 
 Outside those hours, the first action after waking may take about a minute. The UI should show a calm "waking up" state, not an error. A deploy restarts the instance, and any scan running at that moment becomes `interrupted` (retryable, with OCR not re-billed).
