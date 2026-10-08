@@ -86,7 +86,7 @@ export function ReceiptPicker({
           onClick={() => picker.current?.click()}
           className={cn(
             'flex h-14 items-center justify-between rounded-[var(--radius-control)] border-[1.5px] border-ink px-[18px] text-[17px] font-semibold text-ink hover:bg-mist disabled:border-rule-2 disabled:text-ink-2',
-            'pointer-fine:h-36 pointer-fine:flex-col pointer-fine:justify-center pointer-fine:gap-2 pointer-fine:border-dashed pointer-fine:border-rule-2 pointer-fine:hover:border-ink',
+            'pointer-fine:h-36 md:pointer-fine:h-64 pointer-fine:flex-col pointer-fine:justify-center pointer-fine:gap-2 pointer-fine:border-dashed pointer-fine:border-rule-2 pointer-fine:hover:border-ink',
             dragging && 'border-cobalt bg-cobalt-soft pointer-fine:border-cobalt',
           )}
         >

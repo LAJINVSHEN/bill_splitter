@@ -136,7 +136,7 @@ function Summary({ bill }: { bill: BillOut }) {
   )
 
   return (
-    <div className="flex max-w-[1100px] flex-col gap-6 pb-6 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-x-14">
+    <div className="flex flex-col gap-6 pb-6 lg:grid lg:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] lg:gap-x-[var(--app-gutter)]">
       <div className="flex min-w-0 flex-col gap-5">
         <PageTitle
           back={{ to: '/bills', label: 'Bills' }}
@@ -239,7 +239,7 @@ function Summary({ bill }: { bill: BillOut }) {
         </details>
       </div>
 
-      <aside aria-label="Bill actions" className="lg:sticky lg:top-6 lg:self-start lg:pt-10">
+      <aside aria-label="Bill actions" className="lg:sticky lg:top-0 lg:self-start lg:border-l lg:border-rule lg:pl-[var(--app-gutter)] lg:pt-10">
         {actions}
       </aside>
 

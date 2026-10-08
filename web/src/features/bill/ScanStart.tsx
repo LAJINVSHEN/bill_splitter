@@ -61,7 +61,7 @@ export function ScanStart({
         </FooterBar>
       }
     >
-      <div className="flex max-w-[640px] flex-col gap-5">
+      <div className="flex flex-col gap-5">
         {top}
         {quota ? (
           <QuotaNotice quota={quota} onManual={() => onManual(scan.error?.billId ?? billId ?? null)} busy={manualBusy} />

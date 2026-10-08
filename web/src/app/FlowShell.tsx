@@ -115,7 +115,7 @@ export function FlowShell({
           <span className="hidden md:inline">{status}</span>
         </span>
       </header>
-      <main className={cn('px-5 md:px-[var(--app-gutter)]', footer ? 'pb-36 md:pb-14' : 'pb-14')}>
+      <main className={cn('px-5 md:px-[var(--app-gutter)]', footer ? 'pb-36 md:pb-10' : 'pb-14')}>
         {exitError != null && (
           <div className="mt-4">
             <Notice tone="danger" action={<Button variant="quiet" onClick={exit} icon={<Icon name="retry" />}>Retry exit</Button>}>
@@ -126,8 +126,10 @@ export function FlowShell({
         <fieldset disabled={exiting} className="min-w-0">{children}</fieldset>
       </main>
       {footer && (
-        <div className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t-[1.5px] border-ink bg-paper md:static md:border-t-0 md:bg-transparent">
-          <fieldset disabled={exiting} className="flex min-w-0 items-center gap-3.5 px-5 py-3 md:px-[var(--app-gutter)] md:pb-10">{footer}</fieldset>
+        // Phones: fixed to the bottom. Desktop: a sticky action bar across the window (summary left,
+        // actions right), so the next step is always in reach however long the step is.
+        <div className="pb-safe fixed inset-x-0 bottom-0 z-30 border-t-[1.5px] border-ink bg-paper md:sticky md:border-t md:border-rule">
+          <fieldset disabled={exiting} className="flex min-w-0 items-center gap-3.5 px-5 py-3 md:px-[var(--app-gutter)] md:py-4">{footer}</fieldset>
         </div>
       )}
     </div>

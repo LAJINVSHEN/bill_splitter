@@ -109,7 +109,7 @@ function AssignScreen({ bill }: { bill: BillOut }) {
       current={3}
       save={painter}
       footer={
-        <FooterBar width="max-w-[1100px]">
+        <FooterBar>
           <div className="flex min-w-0 flex-1 flex-col">
             <span className="truncate text-[14px] font-semibold text-ink-2">
               {active ? `${personName(active)} so far` : 'So far'}
@@ -125,7 +125,7 @@ function AssignScreen({ bill }: { bill: BillOut }) {
         </FooterBar>
       }
     >
-      <div className="flex max-w-[1100px] flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-x-14">
+      <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] lg:gap-x-[var(--app-gutter)]">
         <div className="flex min-w-0 flex-col gap-4">
           {painter.error != null && <SaveError error={painter.error} onRetry={painter.retry} />}
           <StepTitle
@@ -218,7 +218,7 @@ function AssignScreen({ bill }: { bill: BillOut }) {
           )}
         </div>
 
-        <aside aria-labelledby="as-totals" className="hidden lg:sticky lg:top-6 lg:block lg:self-start lg:pt-8">
+        <aside aria-labelledby="as-totals" className="hidden lg:sticky lg:top-0 lg:block lg:self-start lg:border-l lg:border-rule lg:pl-[var(--app-gutter)] lg:pt-8">
           <SectionTitle id="as-totals">So far</SectionTitle>
           <ul className="border-t-[1.5px] border-ink">
             {participants.map((p) => (

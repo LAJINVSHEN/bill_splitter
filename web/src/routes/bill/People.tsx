@@ -65,18 +65,25 @@ function PeopleScreen({ bill }: { bill: BillOut }) {
         </FooterBar>
       }
     >
-      <div className="flex max-w-[640px] flex-col gap-4">
-        <StepTitle>Who’s splitting?</StepTitle>
-        <ScanStrip bill={bill} onManual={() => void next()} manualBusy={leaving} />
-        {save.error != null && <SaveError error={save.error} onRetry={save.retry} />}
-        {patch.error && <Notice tone="danger">{patch.error.message}</Notice>}
-        <PeoplePicker
-          selected={selected}
-          onChange={change}
-          known={bill.participants.map((p) => ({ id: p.person_id, name: p.name, color_seed: p.color_seed, is_self: p.is_self }))}
-          locked={selfId ? [selfId] : []}
-          note={(id) => (id === bill.payer_person_id ? 'paid' : null)}
-        />
+      {/* Desktop: people on the left, the receipt's progress in a rail on the right. */}
+      <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] xl:items-start xl:gap-x-[var(--app-gutter)]">
+        <div className="xl:col-span-2">
+          <StepTitle>Who’s splitting?</StepTitle>
+        </div>
+        <div className="min-w-0 xl:col-start-2 xl:row-start-2 xl:border-l xl:border-rule xl:pl-[var(--app-gutter)]">
+          <ScanStrip bill={bill} onManual={() => void next()} manualBusy={leaving} />
+        </div>
+        <div className="flex min-w-0 flex-col gap-4 xl:col-start-1 xl:row-start-2">
+          {save.error != null && <SaveError error={save.error} onRetry={save.retry} />}
+          {patch.error && <Notice tone="danger">{patch.error.message}</Notice>}
+          <PeoplePicker
+            selected={selected}
+            onChange={change}
+            known={bill.participants.map((p) => ({ id: p.person_id, name: p.name, color_seed: p.color_seed, is_self: p.is_self }))}
+            locked={selfId ? [selfId] : []}
+            note={(id) => (id === bill.payer_person_id ? 'paid' : null)}
+          />
+        </div>
       </div>
     </FlowShell>
   )

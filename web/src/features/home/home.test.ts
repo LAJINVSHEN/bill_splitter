@@ -9,7 +9,6 @@ import type { BillSummaryOut, PersonOut, SummaryOut } from '@/lib/types'
 import BillsPage from '@/routes/Bills'
 import PeoplePage from '@/routes/People'
 import { BillRows, BillTable } from './BillList'
-import { OwedHero } from './HomeSections'
 import { filterSettled, filterStatuses, owingCount, owingIndex, parseFilter, progressState } from './billState'
 import { billName, dayOf, longDate, monthName, parseCalendarDate, participantNames, peopleCount, shortDate } from './format'
 
@@ -71,29 +70,6 @@ describe('dates', () => {
     expect(participantNames({ participant_count: 4, participant_names: ['You', 'Maya', 'Arjun', 'Lena'] })).toBe('You, Maya +2')
     expect(participantNames({ participant_count: 3 })).toBe('3 people')
     expect(participantNames({ participant_count: 0, participant_names: [] })).toBe('0 people')
-  })
-})
-
-describe('other-currency bill actions', () => {
-  const yenBill: SummaryOut['bills'][number] = { bill_id: 'yen-bill', title: 'Dinner', bill_date: null,
-    currency: 'JPY', owed_to_me_cents: 500, i_owe_cents: 0, unsettled_people: 1 }
-  const summary: SummaryOut = {
-    home: { currency: 'SGD', owed_to_me_cents: 0, i_owe_cents: 0 },
-    currencies: [{ currency: 'JPY', owed_to_me_cents: 500, i_owe_cents: 0 }],
-    people: [],
-    bills: [yenBill],
-  }
-
-  it('opens the existing bill rather than saving an unrelated account rate', () => {
-    render(createElement(OwedHero, { summary }), { wrapper: queryWrapper() })
-    expect(screen.getByRole('link', { name: 'Open JPY bill' })).toHaveAttribute('href', '/bills/yen-bill')
-    expect(screen.queryByRole('link', { name: 'Add JPY rate' })).not.toBeInTheDocument()
-  })
-
-  it('opens outstanding bills when more than one bill needs attention', () => {
-    render(createElement(OwedHero, { summary: { ...summary, bills: [...summary.bills,
-      { ...yenBill, bill_id: 'second-yen-bill' }] } }), { wrapper: queryWrapper() })
-    expect(screen.getByRole('link', { name: 'Open JPY bills' })).toHaveAttribute('href', '/bills?show=open')
   })
 })
 

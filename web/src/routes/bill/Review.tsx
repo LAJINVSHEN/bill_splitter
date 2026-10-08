@@ -126,7 +126,7 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
       current={2}
       save={save}
       footer={
-        <FooterBar width="max-w-[960px]">
+        <FooterBar>
           <div className="flex min-w-0 flex-1 flex-col">
             <span className={cn('whitespace-nowrap text-[14px] font-semibold', bill.validation && !bill.validation.ok && named ? 'text-warn' : 'text-ink-2')}>
               {bill.validation && !bill.validation.ok && named ? 'Doesn’t add up' : 'Total'}
@@ -148,12 +148,12 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
     >
       <div className={cn(hasPhoto && 'lg:-mx-[var(--app-gutter)] lg:grid lg:grid-cols-[minmax(340px,5fr)_minmax(0,8fr)]')}>
         {hasPhoto && (
-          <aside aria-label="Receipt" className="hidden min-h-0 border-r border-rule bg-mist px-[clamp(16px,2vw,32px)] py-6 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
+          <aside aria-label="Receipt" className="hidden min-h-0 border-r border-rule bg-mist px-[clamp(16px,2vw,32px)] pb-28 pt-6 lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col">
             <PhotoViewer bill={bill} className="flex-1" />
           </aside>
         )}
 
-        <div className={cn('flex min-w-0 max-w-[960px] flex-col gap-6', hasPhoto && 'lg:px-[clamp(16px,3vw,48px)]')}>
+        <div className={cn('flex min-w-0 flex-col gap-6', hasPhoto && 'lg:px-[clamp(16px,3vw,48px)]')}>
           <div className="flex flex-wrap items-end justify-between gap-x-3 gap-y-2">
             <StepTitle>{bill.items.length || hasPhoto ? 'Check the items' : 'Add the items'}</StepTitle>
             {hasPhoto && (
@@ -163,7 +163,7 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
             )}
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,1.3fr)_minmax(0,1.3fr)]">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.4fr)]">
             <TextField label="Place" value={draft.merchant} maxLength={120} autoComplete="off" onChange={(e) => update((d) => ({ ...d, merchant: e.target.value }))} />
             <TextField label="Date" type="date" value={draft.date} onChange={(e) => update((d) => ({ ...d, date: e.target.value }))} />
             <SelectField

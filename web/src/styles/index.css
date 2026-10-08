@@ -44,6 +44,8 @@
     --app-sidebar-w: 248px;
     --app-gutter: clamp(1rem, 0.6rem + 1.2vw, 3.5rem);
     --app-bottom-gap: 6.5rem;
+    /* desktop context rail (balances, summaries, side forms): grows with the window, no jumps */
+    --app-rail-w: clamp(19rem, 14rem + 9vw, 27rem);
   }
   @media (min-width: 48rem) {
     :root {

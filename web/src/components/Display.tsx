@@ -100,18 +100,55 @@ export function Notice({ tone = 'warn', children, action }: { tone?: 'warn' | 'd
   )
 }
 
-export function PageTitle({ children, sub, back }: { children: ReactNode; sub?: ReactNode; back?: { to: string; label: string } }) {
+export function PageTitle({ children, sub, back, actions }: {
+  children: ReactNode
+  sub?: ReactNode
+  back?: { to: string; label: string }
+  /** page-level controls; sit on the title's baseline from md up (desktop toolbar row) */
+  actions?: ReactNode
+}) {
   return (
-    <header className="pt-3 md:pt-10">
-      {back && (
-        <Link to={back.to} className="-ml-1 mb-1 inline-flex h-11 items-center gap-1 text-[15px] font-semibold text-ink">
-          <Icon name="back" />
-          {back.label}
-        </Link>
-      )}
-      <h1 className="display text-[34px] md:text-[40px]">{children}</h1>
-      {sub && <p className="mt-1.5 text-[15px] text-ink-2">{sub}</p>}
+    <header className="flex flex-col gap-4 pt-3 md:flex-row md:items-end md:justify-between md:gap-6 md:pt-10">
+      <div className="min-w-0">
+        {back && (
+          <Link to={back.to} className="-ml-1 mb-1 inline-flex h-11 items-center gap-1 text-[15px] font-semibold text-ink">
+            <Icon name="back" />
+            {back.label}
+          </Link>
+        )}
+        <h1 className="display text-[34px] md:text-[40px]">{children}</h1>
+        {sub && <p className="mt-1.5 text-[15px] text-ink-2">{sub}</p>}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">{actions}</div>}
     </header>
+  )
+}
+
+/**
+ * Desktop two-track page (xl up): the main column plus a sticky context rail separated by a
+ * hairline, declared once so it holds at every width (playbook §1.6: no max-width, no mx-auto).
+ * Below xl the rail stacks; `railFirst` keeps it above the main column there (DOM order).
+ */
+export function RailLayout({ children, rail, railLabel, railFirst = false }: {
+  children: ReactNode
+  rail: ReactNode
+  railLabel: string
+  railFirst?: boolean
+}) {
+  const aside = (
+    <aside
+      aria-label={railLabel}
+      className="min-w-0 xl:sticky xl:top-0 xl:col-start-2 xl:row-start-1 xl:h-dvh xl:overflow-y-auto xl:border-l xl:border-rule xl:pb-10 xl:pl-[var(--app-gutter)] xl:pt-10"
+    >
+      {rail}
+    </aside>
+  )
+  return (
+    <div className="grid gap-8 md:gap-12 xl:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] xl:gap-x-[var(--app-gutter)] xl:gap-y-0">
+      {railFirst && aside}
+      <div className="min-w-0 xl:col-start-1 xl:row-start-1">{children}</div>
+      {!railFirst && aside}
+    </div>
   )
 }
 

@@ -1,14 +1,14 @@
 import { useState, type FormEvent } from 'react'
 import { Button } from '@/components/Button'
-import { Avatar, Notice, PageTitle } from '@/components/Display'
+import { Avatar, EvenBadge, Money, Notice, PageTitle } from '@/components/Display'
 import { TextField } from '@/components/Field'
 import { Dialog, useToast } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
-import { useClearBills, useClearPeople, useCreatePerson, useDeletePerson, usePeople, useUpdatePerson } from '@/data/queries'
+import { useClearBills, useClearPeople, useCreatePerson, useDeletePerson, usePeople, useSummary, useUpdatePerson } from '@/data/queries'
 import { LoadError, SectionLoader } from '@/features/home/BillList'
 import { cleanName, HUES, nameError, nearestHue } from '@/features/home/people'
 import { ApiError } from '@/lib/api'
-import type { PersonOut } from '@/lib/types'
+import type { PersonOut, SummaryOut } from '@/lib/types'
 
 /** The hue fewest people already have, so new people look different from the last few. */
 function freshHue(people: PersonOut[]): number {
@@ -257,20 +257,39 @@ function DeletePeople({ target, onClose }: { target: PersonOut | 'all'; onClose:
   )
 }
 
+type Balance = SummaryOut['people'][number]
+
+/** Open balances with one person, one line per currency (never summed across currencies). */
+function PersonBalance({ balances }: { balances: Balance[] | undefined }) {
+  const open = (balances ?? []).filter((b) => b.they_owe_me_cents > 0 || b.i_owe_them_cents > 0)
+  if (open.length === 0) return <EvenBadge />
+  return (
+    <span className="flex flex-col text-[15px]">
+      {open.map((b) => (
+        <span key={b.currency} className="whitespace-nowrap">
+          {b.they_owe_me_cents > 0 ? (
+            <>owes you <Money minor={b.they_owe_me_cents} currency={b.currency} code className="font-bold" /></>
+          ) : (
+            <>you owe <Money minor={b.i_owe_them_cents} currency={b.currency} code className="font-bold" /></>
+          )}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 export default function PeoplePage() {
   const people = usePeople()
+  const summary = useSummary()
+  const balances = new Map<string, Balance[]>()
+  for (const b of summary.data?.people ?? []) balances.set(b.person_id, [...(balances.get(b.person_id) ?? []), b])
   const [editing, setEditing] = useState<PersonOut | null>(null)
   const [deleting, setDeleting] = useState<PersonOut | 'all' | null>(null)
   const list = people.data ?? []
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <PageTitle>People</PageTitle>
-        <Button variant="quiet" className="text-danger" icon={<Icon name="trash" size={20} />} onClick={() => setDeleting('all')}>
-          Clear saved people
-        </Button>
-      </div>
+      <PageTitle>People</PageTitle>
       {people.isPending ? (
         <SectionLoader label="Loading people" />
       ) : people.isError ? (
@@ -278,25 +297,47 @@ export default function PeoplePage() {
       ) : (
         <>
           <AddPerson people={list} />
-          <ul aria-label="Saved people" className="border-t-[1.5px] border-ink md:max-w-[720px]">
+          <ul aria-label="Saved people" className="border-t-[1.5px] border-ink">
+            <li aria-hidden="true" className="hidden grid-cols-[32px_minmax(160px,22rem)_minmax(0,1fr)_140px] items-center gap-3 border-b border-rule py-2.5 text-[14px] font-semibold text-ink-2 md:grid">
+              <span />
+              <span>Name</span>
+              <span>Balance</span>
+              <span />
+            </li>
             {list.map((p) => (
-              <li key={p.id} className="flex min-h-[56px] items-center gap-3 border-b border-rule">
+              <li key={p.id} className="group grid min-h-[56px] grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-x-3 border-b border-rule py-1.5 hover:bg-mist md:grid-cols-[32px_minmax(160px,22rem)_minmax(0,1fr)_140px]">
                 <Avatar name={p.name} seed={p.color_seed} size={32} />
-                <span className="min-w-0 flex-1 truncate text-base font-semibold">
-                  {p.name}
-                  {p.is_self && <span className="ml-2 text-[15px] font-semibold text-ink-2">You</span>}
+                <span className="min-w-0">
+                  <span className="block truncate text-base font-semibold">
+                    {p.name}
+                    {p.is_self && <span className="ml-2 text-[15px] font-semibold text-ink-2">You</span>}
+                  </span>
+                  {!p.is_self && <span className="block md:hidden"><PersonBalance balances={balances.get(p.id)} /></span>}
                 </span>
-                <Button variant="quiet" aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)}>
-                  Edit
-                </Button>
-                {!p.is_self && <Button variant="quiet" className="h-11 w-11 shrink-0 p-0 text-danger" aria-label={`Delete ${p.name}`} title={`Delete ${p.name}`} onClick={() => setDeleting(p)}>
-                  <Icon name="trash" size={20} />
-                </Button>}
+                <span className="hidden min-w-0 md:block">{!p.is_self && <PersonBalance balances={balances.get(p.id)} />}</span>
+                {/* Desktop: revealed on row hover/focus in reserved width (nothing shifts); always shown on touch. */}
+                <span className="flex items-center justify-end md:opacity-0 md:transition-opacity md:group-focus-within:opacity-100 md:group-hover:opacity-100 pointer-coarse:opacity-100">
+                  <Button variant="quiet" aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)}>
+                    Edit
+                  </Button>
+                  {!p.is_self ? (
+                    <Button variant="quiet" className="h-11 w-11 shrink-0 p-0 text-danger" aria-label={`Delete ${p.name}`} title={`Delete ${p.name}`} onClick={() => setDeleting(p)}>
+                      <Icon name="trash" size={20} />
+                    </Button>
+                  ) : (
+                    <span className="w-11 shrink-0" />
+                  )}
+                </span>
               </li>
             ))}
           </ul>
         </>
       )}
+      <div className="border-t border-rule pt-3">
+        <Button variant="quiet" className="text-danger" icon={<Icon name="trash" size={20} />} onClick={() => setDeleting('all')}>
+          Clear saved people
+        </Button>
+      </div>
       {editing && <EditPerson key={editing.id} person={editing} onClose={() => setEditing(null)} />}
       {deleting && <DeletePeople key={deleting === 'all' ? 'all' : deleting.id} target={deleting} onClose={() => setDeleting(null)} />}
     </div>

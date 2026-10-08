@@ -1,10 +1,9 @@
 import { Link } from 'react-router'
 import { Wordmark } from '@/components/Brand'
 import { useMe, useSummary, useUsage } from '@/data/queries'
-import { LoadError, SectionLoader } from '@/features/home/BillList'
-import { Debtors, InProgress, OwedHero, RecentBills, StartBill } from '@/features/home/HomeSections'
+import { InProgress, RecentBills, StartBill } from '@/features/home/HomeSections'
 
-/** Home: what I'm owed, who owes it, start or resume a bill, and the latest finished ones. */
+/** Home: start a bill (scan first), resume one, and the latest ones. Balances live on People. */
 export default function HomePage() {
   const me = useMe()
   const summary = useSummary()
@@ -29,25 +28,9 @@ export default function HomePage() {
 
       <h1 className="sr-only">Home</h1>
 
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(420px,100%),1fr))] gap-8 md:gap-12">
-        <div>
-          {summary.isPending ? (
-            <SectionLoader label="Loading balances" />
-          ) : summary.isError ? (
-            <LoadError what="your balances" onRetry={() => void summary.refetch()} retrying={summary.isFetching} />
-          ) : (
-            <>
-              <OwedHero summary={summary.data} />
-              <Debtors summary={summary.data} />
-            </>
-          )}
-        </div>
-        <div className="flex flex-col gap-8">
-          <StartBill usage={usage.data} />
-          <InProgress />
-        </div>
-      </div>
-
+      {/* Starting a bill is the first thing on the page; scanning/uploading leads. */}
+      <StartBill usage={usage.data} />
+      <InProgress />
       <RecentBills summary={summary.data} homeCurrency={homeCurrency} />
     </div>
   )

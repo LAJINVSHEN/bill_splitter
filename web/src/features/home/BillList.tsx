@@ -56,22 +56,22 @@ function DeleteControl({ bill, onDelete, deletingId }: Pick<ListProps, 'onDelete
 export function BillTable({ bills, owing, homeCurrency, label, onDelete, deletingId }: ListProps) {
   return (
     <div className="relative overflow-x-auto">
-      <table aria-label={label} className="w-full min-w-[640px] border-collapse text-base">
+      <table aria-label={label} className="w-full min-w-[640px] table-fixed border-collapse text-base">
         <thead>
           <tr className="border-t-[1.5px] border-b border-ink border-b-rule text-left text-[14px] text-ink-2">
-            <th scope="col" className="w-[110px] py-2.5 font-semibold">
+            <th scope="col" className="w-[116px] py-2.5 font-semibold">
               Date
             </th>
             <th scope="col" className="py-2.5 font-semibold">
               Bill
             </th>
-            <th scope="col" className="w-[140px] py-2.5 font-semibold">
+            <th scope="col" className="w-[24%] max-w-[240px] py-2.5 font-semibold">
               People
             </th>
-            <th scope="col" className="w-[160px] py-2.5 text-right font-semibold">
+            <th scope="col" className="w-[136px] py-2.5 text-right font-semibold">
               Total
             </th>
-            <th scope="col" className="w-[170px] py-2.5 text-right font-semibold">
+            <th scope="col" className="w-[128px] py-2.5 text-right font-semibold">
               Status
             </th>
             {onDelete && <th scope="col" className="w-[52px]"><span className="sr-only">Actions</span></th>}
@@ -79,21 +79,26 @@ export function BillTable({ bills, owing, homeCurrency, label, onDelete, deletin
         </thead>
         <tbody>
           {bills.map((b) => (
-            <tr key={b.id} className="relative border-b border-rule hover:bg-mist">
+            <tr key={b.id} className="group relative border-b border-rule hover:bg-mist">
               <td className="num py-3.5 font-semibold text-ink-2">{shortDate(b.bill_date ?? b.created_at)}</td>
-              <td className="py-3.5 pr-4 font-semibold">
+              <td className="truncate py-3.5 pr-4 font-semibold" title={billName(b)}>
                 <Link to={`/bills/${b.id}`} className="outline-offset-[-2px] after:absolute after:inset-0 after:content-['']">
                   {billName(b)}
                 </Link>
               </td>
-              <td className="max-w-[200px] break-words py-3.5 pr-3 text-ink-2" title={b.participant_names?.join(', ')}>{participantNames(b)}</td>
+              <td className="truncate py-3.5 pr-3 text-ink-2" title={b.participant_names?.join(', ')}>{participantNames(b)}</td>
               <td className="py-3.5 text-right font-semibold">
                 <Total bill={b} homeCurrency={homeCurrency} alwaysCode />
               </td>
-              <td className="max-w-[200px] py-3.5 text-right">
+              <td className="truncate py-3.5 text-right">
                 <BillStatusLabel bill={b} owing={owingCount(b, owing)} />
               </td>
-              {onDelete && <td className="pl-2 text-right"><DeleteControl bill={b} onDelete={onDelete} deletingId={deletingId} /></td>}
+              {onDelete && (
+                // Desktop: revealed on row hover/focus in reserved width (nothing shifts); always shown on touch.
+                <td className="pl-2 text-right opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100">
+                  <DeleteControl bill={b} onDelete={onDelete} deletingId={deletingId} />
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

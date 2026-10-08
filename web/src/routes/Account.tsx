@@ -88,122 +88,129 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="flex flex-col gap-7 md:max-w-[720px] md:gap-9">
+    <div className="flex flex-col gap-7 md:gap-9">
       <PageTitle sub={`@${user.username}${user.role === 'admin' ? ' · admin' : ''}`}>{user.display_name}</PageTitle>
 
-      {usage.data && (
-        <section aria-labelledby="scans-title" className="flex flex-col gap-2">
-          <div className="flex items-baseline justify-between gap-3">
-            <h2 id="scans-title" className="text-[15px] font-semibold">
-              Scans this month
-            </h2>
-            <span className="num text-[15px] font-semibold">
-              {usage.data.pages_used} of {usage.data.pages_quota}
-            </span>
-          </div>
-          <Meter
-            value={usage.data.pages_used}
-            max={usage.data.pages_quota}
-            label="Scans used this month"
-            tone={usage.data.scans_paused || usage.data.pages_used >= usage.data.pages_quota ? 'warn' : 'cobalt'}
-          />
-          {paused && <p className="text-[15px] font-semibold text-warn">{paused}</p>}
-        </section>
-      )}
-
-      <Section id="money-title" title="Money">
-        <Row label="Home currency" htmlFor="home-currency">
-          <select
-            id="home-currency"
-            value={home}
-            disabled={update.isPending}
-            onChange={(e) => void setCurrency(e.target.value)}
-            className={cn(controlClass, 'h-11 w-auto min-w-0 max-w-[58%] truncate px-2.5 text-[15px] font-semibold md:max-w-[320px]')}
-          >
-            {CURRENCIES.map((c) => (
-              <option key={c.code} value={c.code}>
-                {c.code} — {c.name}
-              </option>
-            ))}
-          </select>
-        </Row>
-        {hasNote && (
-          <Row label="How friends pay you">
-            <Button variant="quiet" className="min-w-0 max-w-[55%] justify-end" onClick={() => setOpen('note')}>
-              <span className="truncate">{user.payment_note || 'Add'}</span>
-            </Button>
-          </Row>
-        )}
-      </Section>
-
-      <section aria-labelledby="rates-title">
-        <SectionTitle
-          id="rates-title"
-          action={
-            <Button
-              variant="quiet"
-              onClick={() => setOpen({ rate: { base: home === 'USD' ? 'EUR' : 'USD', quote: home, rate: '', existing: false } })}
-            >
-              Add rate
-            </Button>
-          }
-        >
-          Saved rates
-        </SectionTitle>
-        {rates.isError ? (
-          <LoadError what="your rates" onRetry={() => void rates.refetch()} retrying={rates.isFetching} />
-        ) : (
-          <ul className="border-t-[1.5px] border-ink">
-            {rates.data && rates.data.length === 0 && <li className="flex min-h-[52px] items-center border-b border-rule text-base text-ink-2">No saved rates</li>}
-            {rateRows(rates.data ?? []).map((r) => (
-              <li key={`${r.base}-${r.quote}`} className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto_44px] items-center gap-3 border-b border-rule">
-                <span className={cn('num truncate text-base', r.derived ? 'font-medium text-ink-2' : 'font-semibold')}>
-                  1 {r.base} = {r.rate} {r.quote}
+      {/* Desktop: two settings columns side by side instead of one narrow column and a void. */}
+      <div className="grid gap-7 md:gap-9 xl:grid-cols-2 xl:items-start xl:gap-x-[var(--app-gutter)]">
+        <div className="flex min-w-0 flex-col gap-7 md:gap-9">
+          {usage.data && (
+            <section aria-labelledby="scans-title" className="flex flex-col gap-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 id="scans-title" className="text-[15px] font-semibold">
+                  Scans this month
+                </h2>
+                <span className="num text-[15px] font-semibold">
+                  {usage.data.pages_used} of {usage.data.pages_quota}
                 </span>
-                <span className="text-[14px] text-ink-2">{r.derived ? 'Inverse' : dayOf(r.updated_at)}</span>
-                {r.derived ? (
-                  <span />
-                ) : (
-                  <button
-                    type="button"
-                    aria-label={`Edit ${r.base} to ${r.quote} rate`}
-                    onClick={() => setOpen({ rate: { base: r.base, quote: r.quote, rate: r.rate, existing: true } })}
-                    className="grid h-11 w-11 place-items-center text-cobalt hover:text-cobalt-ink"
-                  >
-                    <Icon name="type" />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              </div>
+              <Meter
+                value={usage.data.pages_used}
+                max={usage.data.pages_quota}
+                label="Scans used this month"
+                tone={usage.data.scans_paused || usage.data.pages_used >= usage.data.pages_quota ? 'warn' : 'cobalt'}
+              />
+              {paused && <p className="text-[15px] font-semibold text-warn">{paused}</p>}
+            </section>
+          )}
 
-      <Section id="signin-title" title="Profile and sign-in">
-        <Row label="Name">
-          <Button variant="quiet" className="min-w-0 max-w-[60%] justify-end" onClick={() => setOpen('name')}>
-            <span className="truncate">{user.display_name}</span>
-          </Button>
-        </Row>
-        <Row label="Password">
-          <Button variant="quiet" onClick={() => setOpen('password')}>
-            Change
-          </Button>
-        </Row>
-        {user.role === 'admin' && (
-          <li className="flex min-h-[52px] items-center justify-between gap-3 border-b border-rule md:hidden">
-            <span className="text-base font-medium">Accounts and limits</span>
-            <Link to="/admin" className="inline-flex h-11 items-center text-[15px] font-bold text-cobalt">
-              Admin
-            </Link>
-          </li>
-        )}
-        <Row label="This device">
-          <Button variant="danger" loading={signingOut} onClick={() => void signOut()}>
-            Sign out
-          </Button>
-        </Row>
-      </Section>
+          <Section id="money-title" title="Money">
+            <Row label="Home currency" htmlFor="home-currency">
+              <select
+                id="home-currency"
+                value={home}
+                disabled={update.isPending}
+                onChange={(e) => void setCurrency(e.target.value)}
+                className={cn(controlClass, 'h-11 w-auto min-w-0 max-w-[58%] truncate px-2.5 text-[15px] font-semibold md:max-w-[320px]')}
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.code} — {c.name}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            {hasNote && (
+              <Row label="How friends pay you">
+                <Button variant="quiet" className="min-w-0 max-w-[55%] justify-end" onClick={() => setOpen('note')}>
+                  <span className="truncate">{user.payment_note || 'Add'}</span>
+                </Button>
+              </Row>
+            )}
+          </Section>
+
+          <section aria-labelledby="rates-title">
+            <SectionTitle
+              id="rates-title"
+              action={
+                <Button
+                  variant="quiet"
+                  onClick={() => setOpen({ rate: { base: home === 'USD' ? 'EUR' : 'USD', quote: home, rate: '', existing: false } })}
+                >
+                  Add rate
+                </Button>
+              }
+            >
+              Saved rates
+            </SectionTitle>
+            {rates.isError ? (
+              <LoadError what="your rates" onRetry={() => void rates.refetch()} retrying={rates.isFetching} />
+            ) : (
+              <ul className="border-t-[1.5px] border-ink">
+                {rates.data && rates.data.length === 0 && <li className="flex min-h-[52px] items-center border-b border-rule text-base text-ink-2">No saved rates</li>}
+                {rateRows(rates.data ?? []).map((r) => (
+                  <li key={`${r.base}-${r.quote}`} className="grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto_44px] items-center gap-3 border-b border-rule">
+                    <span className={cn('num truncate text-base', r.derived ? 'font-medium text-ink-2' : 'font-semibold')}>
+                      1 {r.base} = {r.rate} {r.quote}
+                    </span>
+                    <span className="text-[14px] text-ink-2">{r.derived ? 'Inverse' : dayOf(r.updated_at)}</span>
+                    {r.derived ? (
+                      <span />
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label={`Edit ${r.base} to ${r.quote} rate`}
+                        onClick={() => setOpen({ rate: { base: r.base, quote: r.quote, rate: r.rate, existing: true } })}
+                        className="grid h-11 w-11 place-items-center text-cobalt hover:text-cobalt-ink"
+                      >
+                        <Icon name="type" />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+
+        <div className="min-w-0">
+          <Section id="signin-title" title="Profile and sign-in">
+            <Row label="Name">
+              <Button variant="quiet" className="min-w-0 max-w-[60%] justify-end" onClick={() => setOpen('name')}>
+                <span className="truncate">{user.display_name}</span>
+              </Button>
+            </Row>
+            <Row label="Password">
+              <Button variant="quiet" onClick={() => setOpen('password')}>
+                Change
+              </Button>
+            </Row>
+            {user.role === 'admin' && (
+              <li className="flex min-h-[52px] items-center justify-between gap-3 border-b border-rule md:hidden">
+                <span className="text-base font-medium">Accounts and limits</span>
+                <Link to="/admin" className="inline-flex h-11 items-center text-[15px] font-bold text-cobalt">
+                  Admin
+                </Link>
+              </li>
+            )}
+            <Row label="This device">
+              <Button variant="danger" loading={signingOut} onClick={() => void signOut()}>
+                Sign out
+              </Button>
+            </Row>
+          </Section>
+        </div>
+      </div>
 
       {me.isError && <LoadError what="your account" onRetry={() => void me.refetch()} retrying={me.isFetching} />}
 

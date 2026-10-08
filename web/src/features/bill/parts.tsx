@@ -80,7 +80,7 @@ export function StepTitle({ children, sub }: { children: ReactNode; sub?: ReactN
   )
 }
 
-/** Footer content aligned with the step's column on wide screens. */
-export function FooterBar({ children, width = 'max-w-[640px]' }: { children: ReactNode; width?: string }) {
-  return <div className={`flex w-full min-w-0 items-center gap-3.5 ${width}`}>{children}</div>
+/** Action-bar content: a flex-1 summary first, then the actions (pushed right on desktop). */
+export function FooterBar({ children }: { children: ReactNode }) {
+  return <div className="flex w-full min-w-0 items-center gap-3.5">{children}</div>
 }

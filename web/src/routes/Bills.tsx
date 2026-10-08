@@ -94,15 +94,7 @@ export default function BillsPage() {
 
   return (
     <div className="flex flex-col gap-5 md:gap-6">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <PageTitle>Bills</PageTitle>
-        <FilterControl value={filter} onChange={setFilter} />
-      </div>
-      <div className="flex justify-end">
-        <Button variant="quiet" className="text-danger" icon={<Icon name="trash" size={20} />} disabled={busy} onClick={() => openDelete('all')}>
-          Clear bill history
-        </Button>
-      </div>
+      <PageTitle actions={<FilterControl value={filter} onChange={setFilter} />}>Bills</PageTitle>
 
       {q.isPending ? (
         <SectionLoader label="Loading bills" />
@@ -133,6 +125,12 @@ export default function BillsPage() {
           )}
         </div>
       )}
+      {/* bulk erase sits after the list, away from the controls used every day */}
+      <div className="border-t border-rule pt-3">
+        <Button variant="quiet" className="text-danger" icon={<Icon name="trash" size={20} />} disabled={busy} onClick={() => openDelete('all')}>
+          Clear bill history
+        </Button>
+      </div>
       {deleting && (
         <Dialog open onClose={() => { if (!busy) setDeleting(null) }} title={deleting === 'all' ? 'Clear bill history?' : 'Delete bill?'}
           footer={<>

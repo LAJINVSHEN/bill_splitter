@@ -3,14 +3,21 @@ import { expectNoHorizontalOverflow, signIn } from './support'
 
 // Read-only checks against the dev seed (george + maya, arjun, lena, tomas; 3 bills). Nothing here mutates data.
 
-test('home: balances, drafts and recent bills', async ({ page }) => {
+test('home: start a bill first, then drafts and recent bills; balances live on People', async ({ page }) => {
   await page.goto('/')
   const main = page.locator('main')
-  await expect(main.getByText('Owed to you')).toBeVisible()
-  await expect(main.getByRole('list', { name: 'Who owes you' }).getByText('Lena Okafor')).toBeVisible()
+  const scan = main.getByRole('link', { name: /Scan or upload a receipt/ })
+  await expect(scan).toHaveAttribute('href', '/bills/new?mode=scan')
+  await expect(main.getByText('Owed to you')).toHaveCount(0)
   await expect(main.getByRole('link', { name: /Team lunch/ })).toBeVisible()
-  await expect(main.getByRole('link', { name: /Scan a receipt/ })).toHaveAttribute('href', '/bills/new?mode=scan')
   await expect(main.getByText('Saturday hotpot').filter({ visible: true })).toBeVisible()
+  await expectNoHorizontalOverflow(page)
+})
+
+test('people: each person with their open balance', async ({ page }) => {
+  await page.goto('/people')
+  const lena = page.locator('main').getByRole('list', { name: 'Saved people' }).getByRole('listitem').filter({ hasText: 'Lena Okafor' })
+  await expect(lena.getByText(/owes you/).filter({ visible: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 

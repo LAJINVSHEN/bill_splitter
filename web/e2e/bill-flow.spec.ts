@@ -210,10 +210,6 @@ test('quick weighted split: partial payment agrees across Home/Bills, settle and
     const summary = await get<SummaryOut>(page, '/me/summary')
     expect(summary.bills.find((bill) => bill.bill_id === id)).toMatchObject({ owed_to_me_cents: 1500, unsettled_people: 1 })
     expect(summary.people.find((person) => person.person_id === friend.id && person.currency === 'SGD')?.bill_count).toBe(baselineCount + 1)
-    if (info.project.name === 'desktop') {
-      await expect(page.getByRole('list', { name: 'Who owes you', exact: true }).getByRole('listitem')
-        .filter({ has: page.getByText(friend.name, { exact: true }) })).toContainText(`${baselineCount + 1} ${baselineCount + 1 === 1 ? 'bill' : 'bills'}`)
-    }
     await billsFilter(page, info, 'Open')
     await expect(billRow(page, info, id, 'Bills')).toContainText('1 owe')
     const open = await get<ApiPage<BillSummaryOut>>(page, '/bills?status=complete&settled=false&limit=100')
