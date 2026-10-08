@@ -132,6 +132,41 @@ async def test_bill_deletion_cancels_jobs_queues_photos_keeps_usage(ctx: Ctx, pe
                          id=bill["id"]) == [(True,)]
 
 
+async def test_permanent_delete_erases_ocr_cache_unless_a_live_bill_shares_the_photo(ctx: Ctx) -> None:
+    from tests.conftest import jpeg
+    from tests.test_scans import scan
+
+    user, other = await ctx.user(), await ctx.user("other")
+    first, second, third = await new_bill(ctx, user), await new_bill(ctx, user), await new_bill(ctx, user)
+    theirs = await new_bill(ctx, other)
+    for owner, bill, photo in ((user, first, "shared"), (user, second, "shared"), (user, third, "solo"),
+                               (other, theirs, "shared")):
+        assert (await scan(ctx, owner, bill["id"], [jpeg(photo)])).status_code == 202
+        await ctx.drain()
+
+    async def cached() -> list[tuple]:
+        return await ctx.sql("SELECT owner_id::text, pages FROM ocr_cache ORDER BY owner_id, content_sha256")
+
+    assert len(await cached()) == 3  # user: shared + solo; other: shared
+    archive = await ctx.client.delete(f"/api/bills/{third['id']}", headers=user.headers,
+                                      params={"permanent": "false"})
+    assert archive.status_code == 204 and len(await cached()) == 3  # archiving keeps everything
+
+    r = await ctx.client.delete(f"/api/bills/{first['id']}", headers=user.headers, params={"permanent": "true"})
+    assert r.status_code == 204
+    # "shared" is still used by the live second bill; "solo" belongs to an archived (not purged) bill.
+    assert await ctx.sql("SELECT count(*) FROM ocr_cache WHERE owner_id = :id", id=user.id) == [(2,)]
+    assert (await ctx.client.get(f"/api/bills/{second['id']}", headers=user.headers)).status_code == 200
+
+    for bill in (second, third):
+        r = await ctx.client.delete(f"/api/bills/{bill['id']}", headers=user.headers, params={"permanent": "true"})
+        assert r.status_code == 204
+    assert await ctx.sql("SELECT count(*) FROM ocr_cache WHERE owner_id = :id", id=user.id) == [(0,)]
+    assert await ctx.sql("SELECT count(*) FROM ocr_cache WHERE owner_id = :id", id=other.id) == [(1,)]
+    assert await ctx.sql("SELECT count(*) FROM extraction_jobs WHERE owner_id = :id AND ocr_text IS NOT NULL",
+                         id=user.id) == [(0,)]
+
+
 async def test_permanent_people_conflict_then_purge_associated_history(ctx: Ctx) -> None:
     user, other = await ctx.user(), await ctx.user("other")
     bill, ids = await full_bill(ctx, user)

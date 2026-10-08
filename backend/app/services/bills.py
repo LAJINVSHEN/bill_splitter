@@ -19,7 +19,7 @@ from app.core.receipt_validation import ReceiptCharge, ReceiptItem, infer_charge
 from app.errors import BadRequest, Conflict, NotFound
 from app.middleware.auth import CurrentUser
 from app.models import Bill, BillCharge, BillItem, BillParticipant, ItemShare, ShareLink
-from app.models.scan import ACTIVE_JOB_STATUSES, ExtractionJob, ReceiptFile
+from app.models.scan import ACTIVE_JOB_STATUSES, ExtractionJob, OcrCache, ReceiptFile
 from app.pagination import decode_cursor, encode_cursor
 from app.repositories import bills as bills_repo
 from app.repositories import people as people_repo
@@ -236,8 +236,21 @@ async def _delete_bills(db: AsyncSession, user: CurrentUser, services: Services,
             ocr_text=None, extracted=None, validation=None, detected_currency=None, error_message=None,
             retryable=False, pages_reserved=0,
         ))
+        await _purge_ocr_cache(db, user.id, bill_ids)
         await db.commit()
 
+
+async def _purge_ocr_cache(db: AsyncSession, owner_id: UUID, bill_ids: Any) -> None:
+    """Erase cached OCR text of the purged bills' photos. A photo that another live bill of
+    the same owner still uses keeps its cache (that bill's receipt can still be re-read)."""
+    purged = select(ReceiptFile.sha256).where(ReceiptFile.bill_id.in_(bill_ids))
+    still_used = (select(ReceiptFile.sha256).join(Bill, Bill.id == ReceiptFile.bill_id)
+                  .where(ReceiptFile.owner_id == owner_id, Bill.deleted_at.is_(None),
+                         ReceiptFile.bill_id.not_in(bill_ids)))
+    await db.execute(delete(OcrCache).where(
+        OcrCache.owner_id == owner_id, OcrCache.content_sha256.in_(purged),
+        OcrCache.content_sha256.not_in(still_used),
+    ).execution_options(synchronize_session=False))
 
 
 def currency_locked(bill: Bill) -> bool:

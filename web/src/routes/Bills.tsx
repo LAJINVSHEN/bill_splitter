@@ -12,6 +12,7 @@ import { cn } from '@/lib/cn'
 import { ApiError } from '@/lib/api'
 import type { BillSummaryOut } from '@/lib/types'
 import { billName } from '@/features/home/format'
+import { DeleteBillNote } from '@/features/bill/DeleteBillNote'
 
 const EMPTY: Record<BillFilter, string> = {
   all: 'No bills yet',
@@ -79,7 +80,7 @@ export default function BillsPage() {
     if (!deleting || busy || (deleting === 'all' && confirmation !== 'DELETE ALL BILLS')) return
     try {
       if (deleting === 'all') await clear.mutateAsync({ permanent: true })
-      else await remove.mutateAsync({ id: deleting.id, permanent: true })
+      else await remove.mutateAsync(deleting.id)
       toast(deleting === 'all' ? 'Bill history cleared' : 'Bill deleted')
       setDeleting(null)
     } catch (error) {
@@ -143,8 +144,7 @@ export default function BillsPage() {
           </>}>
           <div className="flex flex-col gap-4" aria-busy={busy}>
             {deleting !== 'all' && <p className="break-words font-semibold">{billName(deleting)}</p>}
-            <p>{deleting === 'all' ? 'All bills, drafts and previously deleted history, across every page and filter, will be permanently erased.' : 'This bill’s items, splits and payment history will be permanently erased.'}</p>
-            <p>Share links stop working, scans are cancelled, and photos are queued for deletion. Scan usage still counts toward your quota. This cannot be undone.</p>
+            <DeleteBillNote all={deleting === 'all'} />
             {deleting === 'all' && <TextField label="Type DELETE ALL BILLS to confirm" value={confirmation} autoComplete="off" disabled={busy} onChange={(event) => setConfirmation(event.target.value)} />}
             {deleteError && <Notice tone="danger">{deleteError}</Notice>}
           </div>

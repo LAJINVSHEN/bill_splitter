@@ -224,10 +224,10 @@ describe('owner deletion controls', () => {
     expect(deletions()[1]?.[0]).toBe('/bills/bill?permanent=true')
   })
 
-  it('preserves the soft-delete default for existing hook callers', async () => {
+  it('always deletes permanently, so Summary and Bills history mean the same thing', async () => {
     const { result } = renderHook(() => useDeleteBill(), { wrapper: queryWrapper() })
     await act(async () => { await result.current.mutateAsync('bill') })
-    expect(deletions()).toEqual([['/bills/bill?permanent=false', { method: 'DELETE' }]])
+    expect(deletions()).toEqual([['/bills/bill?permanent=true', { method: 'DELETE' }]])
   })
 
   it('never offers deletion of Me and cancels person deletion without a write', async () => {

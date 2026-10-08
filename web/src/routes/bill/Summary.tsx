@@ -12,6 +12,7 @@ import type { BillOut, ShareLinkOut, SplitPersonOut, UUID } from '@/lib/types'
 import { ConvertDialog } from '@/features/bill/ConvertDialog'
 import { billTitle, shortDate, stepPath } from '@/features/bill/flow'
 import { BillGate } from '@/features/bill/parts'
+import { DeleteBillNote } from '@/features/bill/DeleteBillNote'
 import { PersonSheet } from '@/features/bill/PersonSheet'
 import { trimDecimal } from '@/features/bill/receiptDraft'
 import { isShareLinkActive, SHARE_LINK_LIMIT, useSendLink } from '@/features/bill/useSendLink'
@@ -259,7 +260,10 @@ function Summary({ bill }: { bill: BillOut }) {
           </>
         }
       >
-        <p className="text-[16px]">{title} and its share links go for everyone. This can’t be undone.</p>
+        <div className="flex flex-col gap-4 text-[16px]">
+          <p className="break-words font-semibold">{title}</p>
+          <DeleteBillNote />
+        </div>
         {del.error && (
           <div className="mt-3">
             <Notice tone="danger">{del.error.message}</Notice>

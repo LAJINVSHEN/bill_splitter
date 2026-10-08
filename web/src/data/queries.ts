@@ -195,15 +195,12 @@ export interface BillPatch {
 export const usePatchBill = (billId: UUID) =>
   useBillMutation(billId, (body: BillPatch) => api<BillOut>(`/bills/${billId}`, { method: 'PATCH', body }))
 
+/** Deleting a bill is always permanent, wherever it starts (Summary, Bills history). */
 export function useDeleteBill() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (input: UUID | { id: UUID; permanent?: boolean }) => {
-      const { id, permanent = false } = typeof input === 'string' ? { id: input } : input
-      return api<void>(`/bills/${id}?permanent=${permanent}`, { method: 'DELETE' })
-    },
-    onSuccess: async (_v, input) => {
-      const billId = typeof input === 'string' ? input : input.id
+    mutationFn: (billId: UUID) => api<void>(`/bills/${billId}?permanent=true`, { method: 'DELETE' }),
+    onSuccess: async (_v, billId) => {
       await qc.cancelQueries({ queryKey: qk.bill(billId) })
       qc.removeQueries({ queryKey: qk.bill(billId) })
       await qc.cancelQueries({ queryKey: ['job'] })
