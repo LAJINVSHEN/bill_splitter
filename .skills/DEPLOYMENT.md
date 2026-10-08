@@ -37,6 +37,10 @@ Steps 3–6 in one go: `python scripts/provision/all.py --enable-deploy` (stops 
 
 **Why this order:** the Pages URL is an input to Supabase Auth (Site URL and redirects) and to Render CORS. Supabase values are inputs to Render. All of it feeds GitHub. If you ran them in a different order, re-run the earlier script: it only patches what changed. After any env change, `python scripts/provision/render.py deploy --wait` applies it.
 
+### Auth sessions (2026-10-08)
+
+Access tokens live **7 days** (`jwt_exp` 604800, set by `supabase.py`). Sessions never expire and refresh silently. Because a token outlives sign-out, the API checks `auth.sessions` on every request (`AUTH_REQUIRE_LIVE_SESSION=true`, forced by `render.py`): signing out ends the token immediately (`401 session_ended`).
+
 ## 3. Automated vs manual
 
 | Automated (scripts / Actions) | Manual (owner) |
@@ -78,7 +82,7 @@ Render also gets fixed values: `ENVIRONMENT=production`, `SUPABASE_ADMIN_BACKEND
 | `deploy-frontend-cloudflare.yml` | push to `main` on `web/**`, `shared/**`; manual | fails fast on missing `VITE_*`/Cloudflare secrets → `npm ci`, tests, build → checks `dist/_redirects` → `wrangler pages deploy web/dist --branch=main` (`cloudflare/wrangler-action@v4`) → smoke. Concurrency `cloudflare-pages-production`. `VITE_AUTH_MODE` is never set |
 | `cron.yml` | `30-59/10 3`, `*/10 4-5`, `*/10 10-14` UTC (11:30–14:00 + 18:00–23:00 SGT), `23 4 * * *` (12:23 SGT), manual | keep-warm `GET /api/health`, which only warns on failure · daily `POST /api/internal/maintenance` (warm-up 6×20 s, 3 attempts, prints status + counts only). `cancel-in-progress: false` |
 
-Every job has `timeout-minutes` and `permissions: contents: read`. Push deploys need `CLOUD_DEPLOY_ENABLED == 'true'`. Manual runs skip that check but only work from `main`.
+Every job has `timeout-minutes` and `permissions: contents: read`. **`main` is protected**: changes arrive via PR with green `Backend`, `Frontend` and `E2E` checks (strict, admins included, no force-push). Secret scanning + push protection are on. Push deploys need `CLOUD_DEPLOY_ENABLED == 'true'`. Manual runs skip that check but only work from `main`.
 
 ## 6. Kill switch and rollback
 
