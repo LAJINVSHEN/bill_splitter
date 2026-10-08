@@ -124,34 +124,6 @@ export function PageTitle({ children, sub, back, actions }: {
   )
 }
 
-/**
- * Desktop two-track page (xl up): the main column plus a sticky context rail separated by a
- * hairline, declared once so it holds at every width (playbook §1.6: no max-width, no mx-auto).
- * Below xl the rail stacks; `railFirst` keeps it above the main column there (DOM order).
- */
-export function RailLayout({ children, rail, railLabel, railFirst = false }: {
-  children: ReactNode
-  rail: ReactNode
-  railLabel: string
-  railFirst?: boolean
-}) {
-  const aside = (
-    <aside
-      aria-label={railLabel}
-      className="min-w-0 xl:sticky xl:top-0 xl:col-start-2 xl:row-start-1 xl:h-dvh xl:overflow-y-auto xl:border-l xl:border-rule xl:pb-10 xl:pl-[var(--app-gutter)] xl:pt-10"
-    >
-      {rail}
-    </aside>
-  )
-  return (
-    <div className="grid gap-8 md:gap-12 xl:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] xl:gap-x-[var(--app-gutter)] xl:gap-y-0">
-      {railFirst && aside}
-      <div className="min-w-0 xl:col-start-1 xl:row-start-1">{children}</div>
-      {!railFirst && aside}
-    </div>
-  )
-}
-
 export function EmptyState({ title, children, action }: { title: string; children?: ReactNode; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-start gap-3 border-t-[1.5px] border-ink py-8">

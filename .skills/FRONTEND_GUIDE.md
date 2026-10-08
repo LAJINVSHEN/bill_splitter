@@ -24,7 +24,7 @@ The old `frontend/` directory is dead code. Never import from it, but read it fo
   - `warn`, `warn-ink`, `warn-soft`, `danger`, `danger-soft`
 - Utilities: `display` (page titles), `display-sm` (section titles), `hero-num` (big amounts), `num` (tabular numbers), `pb-safe`, `animate-even`.
 - Radii: `rounded-[var(--radius-control)]` (6 px) for controls, `--radius-panel` (10 px) only for the share stub and the admin side panel.
-- Layout vars: `--app-gutter`, `--app-bottom-gap` (clearance for the phone tab bar).
+- Layout vars: `--app-gutter`, `--app-bottom-gap` (clearance for the phone tab bar), `--app-rail-w` (desktop context rail; a `clamp()`, never a `max-width`).
 - **Grep gate** (must find nothing in `web/src` outside `styles/index.css`): `grep -rEn "#[0-9a-fA-F]{3,6}\b|\b(gray|slate|blue|green|red)-" web/src --include=*.tsx` (the `\b` keeps `-translate-y` and `shared-` from tripping it). The only colour literals allowed outside are the `hsl(...)` in `Avatar`.
 
 ## 3. Components (`web/src/components`). Use them; don't fork them
@@ -40,6 +40,13 @@ The old `frontend/` directory is dead code. Never import from it, but read it fo
 | `useToast()`, `Dialog`, `SlowNetworkBar` | `Feedback.tsx`. `Dialog` is a bottom sheet on phones and centred on desktop |
 
 Shells: `AppShell` (sidebar on desktop, bottom tabs on phones) wraps Home, Bills, Summary, People, Account and Admin. Bill-flow screens render their own `<FlowShell billId steps current footer>` (focus mode with "Save & exit" and a Saved/Saving indicator driven by mutations keyed `['bill', id]`).
+
+Desktop layout (owner pass 2026-10-08):
+- No left-aligned `max-w-[...]` page columns and no centred `mx-auto` column (playbook §1.6). Fill the width with grid tracks: main `minmax(0,1fr)` + `var(--app-rail-w)` rail with a hairline `border-l` (Assign, Summary, the flow People step). Narrow *forms* may keep a width cap.
+- Page-level controls go in `PageTitle actions` (same row as the title on desktop). Bulk destructive actions ("Clear …") sit after the list, never in the toolbar.
+- Row actions (Edit/Delete) reveal on row hover/focus in reserved width (`opacity`, nothing shifts) and stay visible on touch (`pointer-coarse:opacity-100`).
+- Flow steps: `footer` is a sticky action bar on desktop (summary left, actions right; `FooterBar`). Don't float primary buttons inside the content.
+- Home opens with Start a bill (scan/upload is the wide primary tile). Balances live on People (per person, per currency), not on Home.
 
 ## 4. Data (`web/src/data/queries.ts`, `web/src/lib/*`)
 
