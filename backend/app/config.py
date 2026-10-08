@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     jwt_audience: str = "authenticated"
     jwt_leeway_seconds: int = 30
     jwks_cache_seconds: int = 600
+    # Production (Supabase): also require the token's `session_id` to still exist in auth.sessions,
+    # so signing out ends even a long-lived (7-day) access token immediately.
+    auth_require_live_session: bool = False
 
     # --- Azure Document Intelligence -----------------------------------------
     ocr_backend: Literal["azure", "fake"] = "azure"

@@ -145,7 +145,10 @@ def auth_settings(site: str) -> dict:
         "external_email_enabled": True,           # username+password logins use the email provider
         "external_phone_enabled": False,
         "external_anonymous_users_enabled": False,
-        "jwt_exp": 3600,                          # 1 h access token; refresh tokens keep sessions for weeks
+        # Owner decision 2026-10-08: 7-day access tokens (Supabase max). Sessions themselves never
+        # expire (no timebox/inactivity limit) and refresh silently; the API checks auth.sessions on
+        # every request (AUTH_REQUIRE_LIVE_SESSION), so sign-out still ends a token immediately.
+        "jwt_exp": 604800,
         "refresh_token_rotation_enabled": True,
         "security_refresh_token_reuse_interval": 10,
         "password_min_length": 8,

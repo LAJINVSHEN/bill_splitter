@@ -42,6 +42,7 @@ FORCED = {
     "OCR_BACKEND": "azure",
     "LLM_BACKEND": "openai",
     "RATE_LIMIT_ENABLED": "true",
+    "AUTH_REQUIRE_LIVE_SESSION": "true",  # 7-day access tokens: sign-out must still end them at once
 }
 FROM_PROD_FILE = ["DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_JWT_SECRET",
                   "AUTH_EMAIL_DOMAIN", "STORAGE_BUCKET"]

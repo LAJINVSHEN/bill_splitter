@@ -25,6 +25,7 @@ from typing import Annotated, Any
 import httpx
 import jwt
 from fastapi import Depends, Request
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -142,6 +143,21 @@ async def verify_token(token: str, settings: Settings, jwks: JWKSCache | None) -
     return TokenClaims(user_id=user_id, email=claims.get("email"), raw=claims)
 
 
+async def session_alive(db: AsyncSession, claims: TokenClaims) -> bool:
+    """The Supabase session behind this token still exists (not signed out, not past not_after).
+    Access tokens live 7 days, so this is what makes sign-out and session revocation immediate."""
+    try:
+        session_id = uuid.UUID(str(claims.raw.get("session_id", "")))
+    except ValueError:
+        return False
+    row = await db.execute(
+        text("SELECT 1 FROM auth.sessions WHERE id = :sid AND user_id = :uid "
+             "AND (not_after IS NULL OR not_after > now())"),
+        {"sid": session_id, "uid": claims.user_id},
+    )
+    return row.first() is not None
+
+
 @dataclass(frozen=True)
 class CurrentUser:
     id: uuid.UUID
@@ -182,6 +198,8 @@ async def get_user_allow_password_change(
     """Authenticated + provisioned + enabled. Does NOT enforce the temp-password change."""
     settings = get_settings()
     claims = await verify_token(_bearer(request), settings, getattr(request.app.state, "jwks", None))
+    if settings.auth_require_live_session and not await session_alive(db, claims):
+        raise _unauthorized("session_ended", "You were signed out. Please sign in again.")
     profile = await db.get(Profile, claims.user_id)
     if profile is None:
         raise AuthError(403, "not_provisioned", "This account hasn't been set up by the admin yet.")

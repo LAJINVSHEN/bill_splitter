@@ -132,3 +132,32 @@ async def test_hs256_rejected_without_secret() -> None:
     settings = Settings(supabase_jwt_secret="")
     with pytest.raises(AppError):
         await verify_token(token_for(uuid.uuid4()), settings, None)
+
+
+# ------------------------------------------------------------------------- live Supabase session (7-day tokens)
+async def test_long_lived_token_needs_a_live_supabase_session(ctx: Ctx, monkeypatch) -> None:
+    """Production uses 7-day access tokens; signing out (session row deleted) must still end them."""
+    user = await ctx.user()
+    live, ended, expired = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await ctx.sql("CREATE SCHEMA IF NOT EXISTS auth")
+    await ctx.sql("CREATE TABLE IF NOT EXISTS auth.sessions (id uuid PRIMARY KEY, user_id uuid NOT NULL, "
+                  "not_after timestamptz)")
+    try:
+        await ctx.sql("INSERT INTO auth.sessions (id, user_id, not_after) VALUES (:a, :u, NULL), "
+                      "(:b, :u, now() - interval '1 minute')", a=live, b=expired, u=user.id)
+
+        def get_me(**claims: object) -> object:
+            token = token_for(user.id, exp_in=7 * 24 * 3600, **claims)
+            return ctx.client.get("/api/me", headers={"Authorization": f"Bearer {token}"})
+
+        assert (await get_me(session_id=str(ended))).status_code == 200  # check off: unaffected
+        monkeypatch.setattr(ctx.settings, "auth_require_live_session", True)
+        assert (await get_me(session_id=str(live))).status_code == 200
+        for claims in ({"session_id": str(ended)}, {"session_id": str(expired)}, {"session_id": "nope"}, {}):
+            r = await get_me(**claims)
+            assert r.status_code == 401 and r.json()["code"] == "session_ended", (claims, r.text)
+        other = await ctx.user("other")
+        r = await ctx.client.get("/api/me", headers={"Authorization": f"Bearer {token_for(other.id, session_id=str(live))}"})
+        assert r.status_code == 401  # someone else's session id doesn't count
+    finally:
+        await ctx.sql("DROP SCHEMA auth CASCADE")
