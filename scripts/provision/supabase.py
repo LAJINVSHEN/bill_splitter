@@ -196,10 +196,38 @@ def configure_google(api: Api, env: Env, ref: str) -> int:
     if not (cid and secret):
         print("  Put GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env, then re-run `supabase.py google`.")
         return 0 if api.dry_run else 1
-    api.write("PATCH", f"/v1/projects/{ref}/config/auth", {
-        "external_google_enabled": True, "external_google_client_id": cid, "external_google_secret": secret})
-    print("  Google provider enabled. Signups stay disabled, so only emails the admin pre-created can sign in.")
-    return 0
+    current = api.get(f"/v1/projects/{ref}/config/auth")
+    if current.get("external_google_enabled") and current.get("external_google_client_id") == cid:
+        print("  Google provider already enabled with this client")
+    else:
+        api.write("PATCH", f"/v1/projects/{ref}/config/auth", {
+            "external_google_enabled": True, "external_google_client_id": cid, "external_google_secret": secret})
+        print("  Google provider enabled. Signups stay disabled, so only emails the admin pre-created can sign in.")
+    if api.dry_run:
+        return 0
+    return verify_google(f"https://{ref}.supabase.co", cid, site)
+
+
+def verify_google(supabase_url: str, client_id: str, site: str) -> int:
+    """Start a real sign-in (no login): Supabase must redirect to Google with our client id and callback."""
+    import urllib.error
+    import urllib.request
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):  # noqa: ANN002, ANN003, ANN201
+            return None
+
+    url = f"{supabase_url}/auth/v1/authorize?provider=google&redirect_to={urllib.parse.quote(site, safe='')}"
+    try:
+        urllib.request.build_opener(NoRedirect).open(url, timeout=30)
+        location = ""
+    except urllib.error.HTTPError as exc:
+        location = exc.headers.get("Location", "") if exc.code in (302, 303) else ""
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(location).query)
+    ok = (location.startswith("https://accounts.google.com/") and query.get("client_id") == [client_id]
+          and query.get("redirect_uri") == [f"{supabase_url}/auth/v1/callback"])
+    print(f"  [{'PASS' if ok else 'FAIL'}] authorize → Google with this client id and the Supabase callback")
+    return 0 if ok else 1
 
 
 def main() -> int:
