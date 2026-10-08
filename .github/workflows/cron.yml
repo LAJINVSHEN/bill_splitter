@@ -1,29 +1,33 @@
 # Scheduled jobs against the production API (Render Free sleeps after ~15 min without traffic).
 #
-# keep-warm   GET /api/health every 10 min from 07:00 to 01:00 Asia/Singapore (UTC+8, no DST):
-#               07:00–07:59 SGT = 23:00–23:59 UTC (previous UTC day) → "*/10 23 * * *"
-#               08:00–00:59 SGT = 00:00–16:59 UTC                    → "*/10 0-16 * * *"
-#             Last ping 00:50 SGT, so the instance sleeps around 01:05 SGT until the first user.
-#             Budget: 18 h/day × 31 = 558 of Render's 750 free instance-hours per workspace.
-#             /api/health never touches the DB. A failed ping only warns (no 100 failure emails a day);
-#             the daily maintenance job is the loud alert.
-# maintenance POST /api/internal/maintenance (Bearer CRON_SECRET) daily at 10:23 SGT = 02:23 UTC
-#             (inside the warm window, so no extra wake-up hours). Purges receipt photos older than
+# keep-warm   GET /api/health every 10 min at PEAK hours only, Asia/Singapore (UTC+8, no DST):
+#               lunch  11:30–13:50 SGT = 03:30–05:50 UTC → "30-59/10 3 * * *" + "*/10 4-5 * * *"
+#               dinner 18:00–22:50 SGT = 10:00–14:50 UTC → "*/10 10-14 * * *"
+#             The instance sleeps ~15 min after the last ping (≈14:05 / 23:05 SGT). Outside these
+#             windows the SPA wakes the API on load (cold start ~1 min, calm "waking up" state).
+#             Budget: ≈7.7 h/day × 31 ≈ 240 h. Render's 750 free instance-hours are PER WORKSPACE and
+#             GoodDaysAhead (same workspace) already uses ~240–300 h with its hourly cron, so the two
+#             apps together stay ≈ 550–600 h. Recompute before widening a window: going over 750
+#             suspends BOTH services until the month resets.
+#             /api/health never touches the DB. A failed ping only warns; maintenance is the loud alert.
+# maintenance POST /api/internal/maintenance (Bearer CRON_SECRET) daily at 12:23 SGT = 04:23 UTC
+#             (inside the lunch warm window, so no extra wake-up hours). Purges receipt photos older than
 #             90 days, fails stale scan jobs and runs a DB query. That daily DB activity also stops
 #             Supabase Free from pausing the project after 7 days of inactivity.
 #
 # Notes: schedules run on the default branch only, may start a few minutes late, and GitHub
 # disables them after 60 days without repository activity (re-enable in the Actions tab).
-# Public repo → Actions minutes are free. On a private repo, ~108 keep-warm runs/day would use
-# ~3,300 billed minutes/month (> 2,000 free), so you'd need to thin the schedule.
+# Public repo → Actions minutes are free. On a private repo the keep-warm would use
+# ~1,400 billed minutes/month (≈46 keep-warm runs/day), within the 2,000 free minutes.
 # Needs: repo variable API_BASE_URL, repo secret CRON_SECRET (same value as on Render).
 name: Cron (keep-warm, maintenance)
 
 on:
   schedule:
-    - cron: "*/10 23 * * *"   # keep-warm 07:00–07:59 SGT
-    - cron: "*/10 0-16 * * *" # keep-warm 08:00–00:59 SGT
-    - cron: "23 2 * * *"      # maintenance 10:23 SGT
+    - cron: "30-59/10 3 * * *" # keep-warm 11:30–11:50 SGT
+    - cron: "*/10 4-5 * * *"   # keep-warm 12:00–13:50 SGT
+    - cron: "*/10 10-14 * * *" # keep-warm 18:00–22:50 SGT
+    - cron: "23 4 * * *"       # maintenance 12:23 SGT
   workflow_dispatch:
     inputs:
       task:
@@ -33,7 +37,7 @@ on:
         default: maintenance
 
 concurrency:
-  group: cron-${{ github.event.schedule == '23 2 * * *' && 'maintenance' || inputs.task || 'keep-warm' }}
+  group: cron-${{ github.event.schedule == '23 4 * * *' && 'maintenance' || inputs.task || 'keep-warm' }}
   cancel-in-progress: false
 
 permissions:
@@ -43,7 +47,7 @@ jobs:
   keep-warm:
     if: >-
       vars.API_BASE_URL != '' &&
-      ((github.event_name == 'schedule' && github.event.schedule != '23 2 * * *') ||
+      ((github.event_name == 'schedule' && github.event.schedule != '23 4 * * *') ||
        (github.event_name == 'workflow_dispatch' && inputs.task == 'keep-warm'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -60,7 +64,7 @@ jobs:
   maintenance:
     if: >-
       vars.API_BASE_URL != '' &&
-      ((github.event_name == 'schedule' && github.event.schedule == '23 2 * * *') ||
+      ((github.event_name == 'schedule' && github.event.schedule == '23 4 * * *') ||
        (github.event_name == 'workflow_dispatch' && inputs.task == 'maintenance'))
     runs-on: ubuntu-latest
     timeout-minutes: 15

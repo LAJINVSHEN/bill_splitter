@@ -5,7 +5,7 @@ or trigger a deploy and wait until it is live.
     python scripts/provision/render.py [--dry-run] [--owner <name|id>] [--deploy]
     python scripts/provision/render.py deploy [--commit <sha>] [--wait] [--timeout 1200]
 
-Needs RENDER_API_KEY in .env; and the Render GitHub App must have access to GeorgePPP/bill_splitter.
+Needs RENDER_API_KEY in .env; and the Render GitHub App must have access to LAJINVSHEN/bill_splitter.
 Provisioning is idempotent: the service is found by name; settings are PATCHed only on drift;
 env vars are upserted one key at a time (PUT /services/{id}/env-vars/{key}); nothing is deleted.
 If Render refuses the free-plan create, the exact dashboard steps are printed instead; create the

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 
-from _common import PROJECT_NAME, Env, HttpError, die, http, require, step
+from _common import PAGES_PROJECT_NAME, Env, HttpError, die, http, require, step
 
 API = "https://api.cloudflare.com/client/v4"
 
@@ -22,7 +22,7 @@ API = "https://api.cloudflare.com/client/v4"
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--dry-run", action="store_true", help="show the plan; no write calls")
-    ap.add_argument("--project", default=PROJECT_NAME)
+    ap.add_argument("--project", default=PAGES_PROJECT_NAME)
     ap.add_argument("--production-branch", default="main")
     args = ap.parse_args()
     env = Env()

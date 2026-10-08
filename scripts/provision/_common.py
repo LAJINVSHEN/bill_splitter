@@ -30,11 +30,18 @@ ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = ROOT / ".env"
 PROD_ENV_FILE = ROOT / ".env.production.local"
 
-PROJECT_NAME = "even"                      # Supabase project + Cloudflare Pages project
+PROJECT_NAME = "even"                      # Supabase project
+PAGES_PROJECT_NAME = "even-split"          # Cloudflare Pages project (even.pages.dev is taken)
 RENDER_SERVICE_NAME = "even-api"
-GITHUB_REPO = "GeorgePPP/bill_splitter"
-DEFAULT_PAGES_URL = f"https://{PROJECT_NAME}.pages.dev"
-USER_AGENT = "even-provision/1.0 (+https://github.com/GeorgePPP/bill_splitter)"
+GITHUB_REPO = "LAJINVSHEN/bill_splitter"
+DEFAULT_PAGES_URL = f"https://{PAGES_PROJECT_NAME}.pages.dev"
+USER_AGENT = "even-provision/1.0 (+https://github.com/LAJINVSHEN/bill_splitter)"
+
+# The owner's .env may name the provider tokens differently; the canonical name always wins.
+ALIASES: dict[str, tuple[str, ...]] = {
+    "SUPABASE_ACCESS_TOKEN": ("SUPABASE_DEVELOPER_TOKEN",),
+    "RENDER_API_KEY": ("RENDERS_DEVELOPER_TOKEN", "RENDER_DEVELOPER_TOKEN"),
+}
 
 # Windows consoles default to cp1252; never crash on an arrow or a non-ASCII name.
 for _stream in (sys.stdout, sys.stderr):
@@ -73,10 +80,11 @@ class Env:
         self.prod = read_env_file(PROD_ENV_FILE)
 
     def get(self, key: str, default: str = "") -> str:
-        for source in (self.prod, self.local, os.environ):
-            val = source.get(key, "")
-            if val.strip():
-                return val.strip()
+        for name in (key, *ALIASES.get(key, ())):
+            for source in (self.prod, self.local, os.environ):
+                val = source.get(name, "")
+                if val.strip():
+                    return val.strip()
         return default
 
     def prod_get(self, key: str, default: str = "") -> str:

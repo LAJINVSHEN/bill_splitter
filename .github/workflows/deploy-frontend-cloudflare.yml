@@ -86,7 +86,7 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: >-
             pages deploy web/dist
-            --project-name=${{ vars.CLOUDFLARE_PROJECT_NAME || 'even' }}
+            --project-name=${{ vars.CLOUDFLARE_PROJECT_NAME || 'even-split' }}
             --branch=main
             --commit-hash=${{ github.sha }}
 

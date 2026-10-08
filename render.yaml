@@ -13,7 +13,7 @@ services:
     runtime: docker
     plan: free                  # $0. Sleeps after ~15 min idle, ~1 min cold start, 750 h/month per workspace
     region: singapore           # next to Supabase ap-southeast-1
-    repo: https://github.com/GeorgePPP/bill_splitter
+    repo: https://github.com/LAJINVSHEN/bill_splitter
     branch: main
     autoDeployTrigger: "off"    # GitHub Actions is the only deploy path (tests + CLOUD_DEPLOY_ENABLED kill switch)
     dockerfilePath: ./backend/Dockerfile.render   # forward slashes only

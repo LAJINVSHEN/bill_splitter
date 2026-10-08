@@ -128,9 +128,9 @@ def main() -> int:
             write(f"set variable {name}={value(name)}", "variable", "set", name, "--repo", repo,
                   "--body", value(name))
     if args.enable_deploy or args.disable_deploy:
-        value = "true" if args.enable_deploy else "false"
-        write(f"set variable CLOUD_DEPLOY_ENABLED={value}", "variable", "set", "CLOUD_DEPLOY_ENABLED",
-              "--repo", repo, "--body", value)
+        flag = "true" if args.enable_deploy else "false"
+        write(f"set variable CLOUD_DEPLOY_ENABLED={flag}", "variable", "set", "CLOUD_DEPLOY_ENABLED",
+              "--repo", repo, "--body", flag)
     else:
         print("  CLOUD_DEPLOY_ENABLED untouched (pass --enable-deploy when you're ready for push deploys)")
 
