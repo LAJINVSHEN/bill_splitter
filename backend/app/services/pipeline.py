@@ -27,9 +27,10 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.currencies import exponent
+from app.core.pricing import max_call_cost_micros
 from app.core.ocr_text import join_pages
 from app.integrations.azure_ocr import OcrError
-from app.integrations.llm import LlmCall
+from app.integrations.llm import LlmCall, max_input_tokens
 from app.integrations.storage import StorageError
 from app.models import Bill, ExtractionJob, ReceiptFile, UsageEvent
 from app.models.scan import ACTIVE_JOB_STATUSES
@@ -75,6 +76,7 @@ async def mark_job_failed(db: AsyncSession, job_id: UUID, code: str, message: st
     job.status, job.error_code, job.error_message, job.retryable = status, code, message, retryable
     job.finished_at = _now()
     job.pages_reserved = 0  # unspent reservation goes back to the pool
+    job.llm_reserved_micros = 0
     await db.execute(update(Bill).where(Bill.id == job.bill_id, Bill.status == "scanning")
                      .values(status="draft", updated_at=func.now()))
     return True
@@ -141,15 +143,17 @@ class JobRunner:
         if not ok:
             raise JobGone
 
-    async def _record_usage(self, job_id: UUID, owner_id: UUID, *, release: int = 0, **values: Any) -> None:
-        """Usage row + job counters; ``release`` returns reserved pages once their call is done
-        (the real pages are now in usage_events, so they still count against the caps)."""
+    async def _record_usage(self, job_id: UUID, owner_id: UUID, *, release: int = 0, release_llm: int = 0,
+                            **values: Any) -> None:
+        """Usage row + job counters; ``release``/``release_llm`` return the pages/LLM budget reserved
+        for a call once it is done (its real usage is now in usage_events and counts instead)."""
         async with self.sm() as db:
             db.add(UsageEvent(user_id=owner_id, job_id=job_id, **values))
             await db.execute(update(ExtractionJob).where(ExtractionJob.id == job_id).values(
                 pages_billed=ExtractionJob.pages_billed + values.get("pages", 0),
                 cost_micros=ExtractionJob.cost_micros + values.get("cost_micros", 0),
                 pages_reserved=func.greatest(ExtractionJob.pages_reserved - release, 0),
+                llm_reserved_micros=func.greatest(ExtractionJob.llm_reserved_micros - release_llm, 0),
             ))
             await db.commit()
 
@@ -303,19 +307,20 @@ class JobRunner:
     async def _llm_stage(self, job_id: UUID, owner_id: UUID, text: str,
                          exp: int) -> tuple[ReceiptExtraction, str]:
         svc = self.svc
-        current: dict[str, str] = {}
+        current: dict[str, Any] = {}
 
         async def on_call(call: LlmCall) -> None:
             current.pop("model", None)
             await self._record_usage(
-                job_id, owner_id, kind="llm", provider=svc.llm.provider, model=call.model or call.requested_model,
+                job_id, owner_id, release_llm=current.pop("reserved", 0), kind="llm", provider=svc.llm.provider,
+                model=call.model or call.requested_model,
                 input_tokens=call.input_tokens, cached_input_tokens=call.cached_input_tokens,
                 output_tokens=call.output_tokens, cost_micros=call.cost_micros, latency_ms=call.latency_ms,
                 ok=call.ok, error_code=call.error_code,
             )
 
         async def before_call(model: str) -> None:
-            await self._check_llm_budget()
+            current["reserved"] = await self._reserve_llm(job_id, model, text)
             current["model"] = model
             await self._update(job_id, heartbeat_at=_now())
 
@@ -324,8 +329,9 @@ class JobRunner:
                                                     exponent=exp)
         except asyncio.CancelledError:
             if "model" in current:
-                await asyncio.shield(self._record_usage(job_id, owner_id, kind="llm", provider=svc.llm.provider,
-                                                        model=current["model"], ok=False, error_code="cancelled"))
+                await asyncio.shield(self._record_usage(
+                    job_id, owner_id, release_llm=current.get("reserved", 0), kind="llm", provider=svc.llm.provider,
+                    model=current["model"], ok=False, error_code="cancelled"))
             raise
         if outcome.extraction is None:
             last = outcome.calls[-1] if outcome.calls else None
@@ -334,14 +340,24 @@ class JobRunner:
                               retryable=code != "llm_not_configured")
         return outcome.extraction, outcome.model or ""
 
-    async def _check_llm_budget(self) -> None:
-        from app.services.usage import llm_budget_state
+    async def _reserve_llm(self, job_id: UUID, model: str, text: str) -> int:
+        """Hold the call's worst-case cost against the monthly budget before making it; the
+        budget is a hard ceiling even with concurrent jobs, fallbacks and SDK retries."""
+        from app.services.usage import reserve_llm_budget
 
+        s = self.svc.settings
+        bound = max_call_cost_micros(model, max_input_tokens(text), s.llm_max_output_tokens, s.llm_max_retries + 1,
+                                     s.llm_prices)
+        if bound is None:
+            raise StageFailed("llm_price_unknown", "AI pricing isn't configured, so scanning is off. "
+                              "You can still enter the bill manually.", retryable=False)
         async with self.sm() as db:
-            used, budget = await llm_budget_state(db, self.svc.settings)
-        if used >= budget:
+            ok = await reserve_llm_budget(db, s, job_id, bound)
+            await db.commit()
+        if not ok:
             raise StageFailed("quota_llm_budget", "The app has reached this month's AI budget. "
                               "You can still enter the bill manually.", retryable=True)
+        return bound
 
     async def _apply_stage(self, job_id: UUID, owner_id: UUID, bill_id: UUID, extraction: ReceiptExtraction,
                            timings: dict[str, Any]) -> None:
@@ -383,6 +399,7 @@ class JobRunner:
             job.error_message = None if validation.ok else validation.message
             job.retryable = False
             job.pages_reserved = 0
+            job.llm_reserved_micros = 0
             job.finished_at = _now()
             job.heartbeat_at = _now()
             job.timings = timings

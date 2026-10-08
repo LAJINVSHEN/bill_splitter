@@ -62,3 +62,15 @@ def estimate_cost_micros(model: str, input_tokens: int, output_tokens: int,
             return 0, False
         price = most_expensive(table)
     return cost_micros(input_tokens, output_tokens, price, cached_input_tokens), known
+
+
+def max_call_cost_micros(model: str, max_input_tokens: int, max_output_tokens: int, attempts: int,
+                         table: Mapping[str, PriceLike]) -> int | None:
+    """Worst-case cost of one model call, for reserving budget BEFORE it is made: every input
+    token at the uncached price, the full output allowance (reasoning tokens included), times
+    the number of attempts the SDK may make. Unknown models use the most expensive price;
+    an empty table can't bound anything (None)."""
+    if not table:
+        return None
+    price = resolve_price(model, table) or most_expensive(table)
+    return cost_micros(max_input_tokens, max_output_tokens, price) * max(attempts, 1)

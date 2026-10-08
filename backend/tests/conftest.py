@@ -35,6 +35,8 @@ os.environ.update({
     "PUBLIC_APP_URL": "https://app.example.com",
     "LLM_PRIMARY_MODEL": "primary-mini",
     "LLM_FALLBACK_MODEL": "fallback-big",
+    # USD per 1M tokens for the fake models, so budget reservations are small, known numbers.
+    "LLM_PRICES": '{"primary-mini": {"input": "0.1", "output": "0.4"}, "fallback-big": {"input": "1", "output": "4"}}',
     "JOB_HEARTBEAT_SECONDS": "0.2",
     "JOB_STALE_SECONDS": "30",
     "DEFAULT_CURRENCY": "SGD",

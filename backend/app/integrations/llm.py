@@ -10,6 +10,7 @@ fails, so usage is always recorded.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from collections.abc import Mapping
@@ -69,6 +70,17 @@ def build_messages(raw_text: str) -> list[dict[str, str]]:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": USER_PROMPT_TEMPLATE.format(raw_text=raw_text)},
     ]
+
+
+_SCHEMA_BYTES = len(json.dumps(ReceiptExtraction.model_json_schema()).encode())
+_MESSAGE_OVERHEAD_TOKENS = 256  # role/format tokens around the messages and the schema
+
+
+def max_input_tokens(raw_text: str) -> int:
+    """Upper bound on billed input tokens: a byte-level BPE token is at least one byte, so the
+    UTF-8 size of the messages plus the response schema bounds the count from above."""
+    return (sum(len(m["content"].encode()) for m in build_messages(raw_text)) + _SCHEMA_BYTES
+            + _MESSAGE_OVERHEAD_TOKENS)
 
 
 class OpenAIReceiptExtractor:

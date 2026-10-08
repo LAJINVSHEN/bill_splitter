@@ -53,6 +53,8 @@ class ExtractionJob(Base):
     pages_billed: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # OCR pages reserved by the atomic quota gate and not yet billed (released per Azure call / at the end).
     pages_reserved: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    # Worst-case cost of the model call in flight, held against the monthly LLM budget.
+    llm_reserved_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     cost_micros: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     timings: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -63,6 +65,7 @@ class ExtractionJob(Base):
 
     __table_args__ = (
         CheckConstraint(f"status IN {JOB_STATUSES}", name="status"),
+        CheckConstraint("llm_reserved_micros >= 0", name="llm_reserved_nonneg"),
         UniqueConstraint("owner_id", "idempotency_key"),
         Index("ix_extraction_jobs_bill_id_created_at", "bill_id", "created_at"),
         Index("ix_extraction_jobs_status", "status"),

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -368,18 +369,116 @@ async def test_global_caps_and_kill_switch(ctx: Ctx) -> None:
     assert (await scan(ctx, user, bill_id, [jpeg()])).status_code == 202
 
 
-async def test_llm_budget_checked_before_each_model_call(ctx: Ctx) -> None:
-    admin = await ctx.user("root", role="admin")
-    user = await ctx.user()
-    await ctx.client.patch("/api/admin/settings", headers=admin.headers,
-                           json={"global_monthly_llm_budget_micros": 1500})
-    ctx.llm.script = {"primary-mini": [BAD_EXTRACTION]}  # costs 1800 µ$ → over budget before the fallback
+def llm_bound(ctx: Ctx, model: str) -> int:
+    """The worst-case reservation the pipeline makes for one call on the fake OCR text."""
+    from app.core.pricing import max_call_cost_micros
+    from app.integrations.llm import max_input_tokens
+
+    s = ctx.services.settings
+    bound = max_call_cost_micros(model, max_input_tokens(ctx.ocr.default_text), s.llm_max_output_tokens,
+                                 s.llm_max_retries + 1, s.llm_prices)
+    assert bound is not None
+    return bound
+
+
+async def set_llm_budget(ctx: Ctx, admin: AppUser, micros: int) -> None:
+    r = await ctx.client.patch("/api/admin/settings", headers=admin.headers,
+                               json={"global_monthly_llm_budget_micros": micros})
+    assert r.status_code == 200, r.text
+
+
+async def llm_reserved(ctx: Ctx) -> int:
+    return (await ctx.sql("SELECT coalesce(sum(llm_reserved_micros), 0) FROM extraction_jobs"))[0][0]
+
+
+async def test_llm_budget_reserves_worst_case_before_a_near_cap_call(ctx: Ctx) -> None:
+    admin, user = await ctx.user("root", role="admin"), await ctx.user()
+    primary = llm_bound(ctx, "primary-mini")
+    assert primary > 1800  # the fake call's real cost is below its worst case
+    await set_llm_budget(ctx, admin, primary - 1)  # nothing spent yet, but one more call COULD overshoot
     bill_id = await new_bill(ctx, user)
     job_id = (await scan(ctx, user, bill_id, [jpeg()])).json()["job_id"]
     await ctx.drain()
     j = await job(ctx, user, job_id)
     assert j["status"] == "failed" and j["error_code"] == "quota_llm_budget" and j["retryable"]
-    assert ctx.llm.calls == ["primary-mini"]
+    assert ctx.llm.calls == [] and await llm_reserved(ctx) == 0
+    assert [r[0] for r in await usage_rows(ctx)] == ["ocr"]
+
+    await set_llm_budget(ctx, admin, primary)  # exactly one worst case fits
+    assert (await ctx.client.post(f"/api/jobs/{job_id}/retry", headers=user.headers)).status_code == 202
+    await ctx.drain()
+    assert (await job(ctx, user, job_id))["status"] == "succeeded"
+    assert ctx.llm.calls == ["primary-mini"] and await llm_reserved(ctx) == 0
+
+
+async def test_fallback_needs_its_own_reservation(ctx: Ctx) -> None:
+    admin, user = await ctx.user("root", role="admin"), await ctx.user()
+    # Room for the primary's worst case, but after its real cost (1800 µ$) not for the fallback's.
+    await set_llm_budget(ctx, admin, 1800 + llm_bound(ctx, "fallback-big") - 1)
+    ctx.llm.script = {"primary-mini": [BAD_EXTRACTION]}
+    bill_id = await new_bill(ctx, user)
+    job_id = (await scan(ctx, user, bill_id, [jpeg()])).json()["job_id"]
+    await ctx.drain()
+    j = await job(ctx, user, job_id)
+    assert j["status"] == "failed" and j["error_code"] == "quota_llm_budget"
+    assert ctx.llm.calls == ["primary-mini"] and await llm_reserved(ctx) == 0
+    spent = await ctx.sql("SELECT sum(cost_micros) FROM usage_events WHERE kind = 'llm'")
+    assert spent == [(1800,)]
+
+
+async def test_concurrent_jobs_cannot_jointly_pass_the_budget(ctx: Ctx) -> None:
+    admin, user = await ctx.user("root", role="admin"), await ctx.user()
+    await set_llm_budget(ctx, admin, llm_bound(ctx, "primary-mini") * 2 - 1)  # room for ONE call in flight
+    ctx.llm.delay = 0.3  # both jobs reach the LLM stage while the first call is still running
+    job_ids = []
+    for _ in range(2):
+        bill_id = await new_bill(ctx, user)
+        job_ids.append((await scan(ctx, user, bill_id, [jpeg()])).json()["job_id"])
+    await ctx.drain()
+    jobs = [await job(ctx, user, jid) for jid in job_ids]
+    statuses = sorted([j["status"], j["error_code"]] for j in jobs)
+    assert statuses == [["failed", "quota_llm_budget"], ["succeeded", None]]
+    assert ctx.llm.calls == ["primary-mini"] and await llm_reserved(ctx) == 0
+
+
+async def test_reservation_is_released_when_the_call_fails_or_is_cancelled(ctx: Ctx) -> None:
+    user = await ctx.user()
+    ctx.llm.script = {"primary-mini": ["llm_timeout"], "fallback-big": ["llm_http_500"]}
+    bill_id = await new_bill(ctx, user)
+    job_id = (await scan(ctx, user, bill_id, [jpeg()])).json()["job_id"]
+    await ctx.drain()
+    assert (await job(ctx, user, job_id))["status"] == "failed" and await llm_reserved(ctx) == 0
+
+    ctx.llm.delay = 5
+    bill_id = await new_bill(ctx, user)
+    job_id = (await scan(ctx, user, bill_id, [jpeg()])).json()["job_id"]
+    await wait_status(ctx, user, job_id, "llm")
+    deadline = asyncio.get_running_loop().time() + 3
+    while await llm_reserved(ctx) == 0 and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+    assert await llm_reserved(ctx) == llm_bound(ctx, "primary-mini")
+    assert (await ctx.client.post(f"/api/jobs/{job_id}/cancel", headers=user.headers)).status_code == 200
+    await ctx.drain()
+    assert await llm_reserved(ctx) == 0
+
+
+async def test_unknown_model_is_reserved_at_the_most_expensive_price(ctx: Ctx, monkeypatch) -> None:
+    from app.config import ModelPrice
+    from app.core.pricing import max_call_cost_micros
+
+    table = {"cheap": ModelPrice(input=Decimal("0.1"), output=Decimal("0.4")),
+             "dear": ModelPrice(input=Decimal("10"), output=Decimal("50"))}
+    assert max_call_cost_micros("mystery-model", 1000, 100, 2, table) == (1000 * 10 + 100 * 50) * 2
+    assert max_call_cost_micros("dear-2026-01-01", 1000, 100, 1, table) == 1000 * 10 + 100 * 50
+    assert max_call_cost_micros("cheap", 1000, 100, 0, {}) is None
+
+    monkeypatch.setattr(ctx.services.settings, "llm_prices", {})
+    user = await ctx.user()
+    bill_id = await new_bill(ctx, user)
+    job_id = (await scan(ctx, user, bill_id, [jpeg()])).json()["job_id"]
+    await ctx.drain()
+    j = await job(ctx, user, job_id)
+    assert j["status"] == "failed" and j["error_code"] == "llm_price_unknown" and ctx.llm.calls == []
 
 
 # ------------------------------------------------------------------------- files

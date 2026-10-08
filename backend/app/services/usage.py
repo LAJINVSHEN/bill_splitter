@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings
@@ -24,11 +24,17 @@ from app.repositories import usage as repo
 from app.schemas.me import UsageOut
 
 QUOTA_LOCK_KEY = 0x6576_656E_0C12  # fixed advisory-lock key for the OCR page gate ("even" + "OCR")
+LLM_LOCK_KEY = 0x6576_656E_0711  # fixed advisory-lock key for the LLM budget gate ("even" + "LLM")
 
 
 async def lock_quota(db: AsyncSession) -> None:
     """Transaction-scoped: held until the caller commits/rolls back."""
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": QUOTA_LOCK_KEY})
+
+
+async def lock_llm_budget(db: AsyncSession) -> None:
+    """Transaction-scoped lock for check + reserve of LLM budget (see ``reserve_llm_budget``)."""
+    await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": LLM_LOCK_KEY})
 
 
 async def app_settings(db: AsyncSession, settings: Settings, *, for_update: bool = False) -> AppSettings:
@@ -88,7 +94,8 @@ async def quota_state(db: AsyncSession, settings: Settings, user_id: UUID, user_
                       user_quota=user_quota, global_pages=everyone.ocr_pages,
                       global_reserved=await reserved_pages(db),
                       global_cap=settings.effective_page_cap(s.global_monthly_page_cap),
-                      llm_cost_micros=everyone.cost_micros, llm_budget_micros=s.global_monthly_llm_budget_micros,
+                      llm_cost_micros=everyone.cost_micros + await reserved_llm_micros(db),
+                      llm_budget_micros=s.global_monthly_llm_budget_micros,
                       scans_enabled=s.scans_enabled, provider_paused=s.provider_paused_month == month)
 
 
@@ -140,9 +147,30 @@ async def my_usage(db: AsyncSession, settings: Settings, user_id: UUID, user_quo
                     scans_paused=reason is not None, pause_reason=reason)  # type: ignore[arg-type]
 
 
+async def reserved_llm_micros(db: AsyncSession) -> int:
+    stmt = select(func.coalesce(func.sum(ExtractionJob.llm_reserved_micros), 0)).where(
+        ExtractionJob.status.in_(ACTIVE_JOB_STATUSES))
+    return int(await db.scalar(stmt) or 0)
+
+
 async def llm_budget_state(db: AsyncSession, settings: Settings) -> tuple[int, int]:
-    """(LLM cost this month in micros, monthly budget in micros) – for all users."""
+    """(LLM cost this month + worst case of calls in flight, monthly budget), in micros, all users."""
     _, start, end = current_month_bounds(datetime.now(UTC), settings.app_timezone)
     s = await app_settings(db, settings)
     everyone = await repo.month_usage(db, start, end)
-    return everyone.cost_micros, s.global_monthly_llm_budget_micros
+    return everyone.cost_micros + await reserved_llm_micros(db), s.global_monthly_llm_budget_micros
+
+
+async def reserve_llm_budget(db: AsyncSession, settings: Settings, job_id: UUID, micros: int) -> bool:
+    """Atomically hold ``micros`` of this month's LLM budget for ``job_id``'s next call.
+
+    Check and reservation run under one advisory lock in the caller's transaction (commit
+    releases it), so concurrent jobs, fallbacks and retries can never jointly pass the cap.
+    False = the call would not fit; nothing is reserved."""
+    await lock_llm_budget(db)
+    used, budget = await llm_budget_state(db, settings)
+    if used + micros > budget:
+        return False
+    await db.execute(update(ExtractionJob).where(ExtractionJob.id == job_id).values(
+        llm_reserved_micros=ExtractionJob.llm_reserved_micros + micros))
+    return True
