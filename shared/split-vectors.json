@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Golden test vectors for bill split and receipt validation maths. The backend (backend/app/core) and the frontend mirror (frontend/src/lib/split) must both reproduce every 'expected' block exactly.",
+  "description": "Golden test vectors for bill split and receipt validation maths. The backend (backend/app/core) and the frontend mirror (web/src/lib/split.ts) must both reproduce every 'expected' block exactly.",
   "rules": {
     "money": "Integer cents everywhere. Weights are decimal strings.",
     "allocate": "allocate(total, weights): share_i = ROUND_HALF_UP(total * w_i / sum(w)) (halves away from zero; 0 if sum(w) == 0); then remainder = total - sum(shares) is added to the LARGEST share (the first one on ties).",
