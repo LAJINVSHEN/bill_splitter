@@ -124,7 +124,7 @@ export const ParticipantManager: React.FC<ParticipantManagerProps> = ({
 
   return (
     <>
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8 px-4">
+      <div className="bg-gradient-to-br from-blue-50 via-white to-indigo-50 py-8 px-4">
         <div className="max-w-4xl mx-auto">
           {/* Hero Section */}
           <div className="text-center mb-8">
@@ -134,10 +134,7 @@ export const ParticipantManager: React.FC<ParticipantManagerProps> = ({
             <h1 className="text-4xl font-bold text-gray-900 mb-4">
               Who's Splitting the Bill?
             </h1>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto mb-8">
-              Add everyone who will be sharing this bill. You can always add or remove people later.
-            </p>
-
+           
             {/* Add Person Button - Only show when no participants and not editing */}
             {participants.length === 0 && editingIndex === null && (
               <div className="mb-8">

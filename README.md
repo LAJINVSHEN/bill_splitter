@@ -1,212 +1,63 @@
-# Bill Splitter
+# even
 
-A modern web application for splitting bills with friends, family, or colleagues. Upload a receipt, assign items to people, and get instant calculations with tax and tip distribution.
+Photograph a receipt, tick who was there, tap who had what. **even** works out what everyone owes, down to the cent and in any currency, and gives each friend a link to their own share.
 
-## Features
+Built for a small circle of friends (10–15 accounts) on a $0/month hosting stack.
 
-- 📸 **Receipt OCR**: Upload receipt images and extract item data using Azure Document Intelligence
-- 🤖 **AI Processing**: Use OpenAI to intelligently parse and structure receipt data
-- 👥 **Multi-person Splitting**: Support for any number of people splitting the bill
-- 🛒 **Item Assignment**: Drag and drop interface to assign items to specific people
-- 💰 **Smart Calculations**: Automatic tax, tip, and discount distribution
-- 📱 **Responsive Design**: Works perfectly on desktop and mobile devices
-- 🎨 **Modern UI**: Clean, intuitive interface inspired by Splitwise
+- **Scan first:** the receipt is read in the background (Azure Document Intelligence → OpenAI) while you pick who's splitting. A failed or cancelled scan can be retried without paying for OCR twice.
+- **Fair, exact maths:** each person pays their share of the items plus the same proportion of tax, service and discounts. Shares always add up exactly to the bill.
+- **Any currency:** per-bill currency with the right minor units (SGD 2 dp, JPY 0, KWD 3), plus conversion at a rate you type in. Different currencies are never summed silently.
+- **Settle up:** mark who has paid you back, send per-person share links (no login needed to view), and keep the full history.
+- **Accounts by invitation:** the admin creates username/password accounts (Google sign-in optional), with per-account monthly scan quotas and a usage log for every paid API call.
 
-## Tech Stack
+## Stack
 
-### Frontend
-- **React 18** with TypeScript
-- **Vite** for fast development and building
-- **Tailwind CSS** for styling
-- **React Hook Form** for form management
-- **React Dropzone** for file uploads
-- **Lucide React** for icons
+| Layer | Tech | Hosting |
+|---|---|---|
+| Web | React 19, Vite, Tailwind 4, TanStack Query, React Router (`web/`) | Cloudflare Pages |
+| API | FastAPI, SQLAlchemy 2 async, Alembic, Python 3.12 (`backend/`) | Render (Docker, Singapore) |
+| Data & auth | Postgres 16, Supabase Auth, Supabase Storage | Supabase |
+| Receipts | Azure Document Intelligence `prebuilt-layout` → OpenAI structured output | — |
+| CI/CD | GitHub Actions: tests, E2E, deploys, keep-warm and daily maintenance crons | GitHub |
 
-### Backend
-- **FastAPI** with Python 3.11+
-- **Azure Document Intelligence** for OCR
-- **OpenAI GPT-4** for data extraction
-- **Pydantic** for data validation
-- **Uvicorn** as ASGI server
+## Run it locally (Windows)
 
-## Project Structure
+Needs Docker Desktop and Node 22+. Copy `.env.example` to `.env` and fill in the keys you have (the app runs without Azure/OpenAI keys; only scanning is disabled).
 
-```
-bill-splitter/
-├── frontend/                 # React TypeScript frontend
-│   ├── src/
-│   │   ├── components/       # React components
-│   │   ├── hooks/           # Custom React hooks
-│   │   ├── services/        # API service layer
-│   │   ├── utils/           # Utility functions
-│   │   ├── types/           # TypeScript type definitions
-│   │   └── styles/          # CSS styles
-│   └── package.json
-├── backend/                 # FastAPI backend
-│   ├── app/
-│   │   ├── api/            # API routes
-│   │   ├── services/       # Business logic
-│   │   ├── models/         # Data models
-│   │   ├── schemas/        # Pydantic schemas
-│   │   └── utils/          # Utility functions
-│   └── requirements.txt
-└── README.md
+```bat
+start-windows.cmd
 ```
 
-## Getting Started
+This starts Postgres and the API in Docker, loads sample data and opens the web app at <http://localhost:5173>. Sign in as `george` (admin), or `maya`, `arjun`, `lena` or `tomas`, with the `DEV_LOGIN_PASSWORD` from `.env`.
 
-### Prerequisites
+Without the script:
 
-- **Windows Development Environment**
-- **Conda** (Miniconda or Anaconda)
-- **Node.js 18+** and npm
-- **Azure Document Intelligence** account
-- **OpenAI API** account
-
-### Quick Start (Windows)
-
-1. **Setup Environment** (one-time setup):
-   ```cmd
-   set-up-windows.cmd
-   ```
-   This script will:
-   - Create a conda environment with Python 3.11
-   - Install all Python dependencies
-   - Install all Node.js dependencies
-   - Verify all prerequisites
-
-2. **Start Development Servers**:
-   ```cmd
-   start-windows.cmd
-   ```
-   This script will:
-   - Start the backend server on `http://localhost:8000`
-   - Start the frontend server on `http://localhost:3000`
-   - Open both in separate terminal windows
-
-3. **Configure API Keys**:
-   Create a `.env` file in the `backend` directory:
-   ```env
-   OCR_KEY=your_azure_ocr_key_here
-   OCR_ENDPOINT=your_azure_ocr_endpoint_here
-   OPENAI_API_KEY=your_openai_api_key_here
-   SECRET_KEY=your_secret_key_here
-   ```
-
-4. **Access the Application**:
-   - Frontend: `http://localhost:3000`
-   - Backend API: `http://localhost:8000`
-   - API Documentation: `http://localhost:8000/docs`
-
-### Manual Setup (Alternative)
-
-If you prefer manual setup or are not using Windows, follow these steps:
-
-#### Backend Setup
-
-1. Create and activate a conda environment:
-   ```bash
-   conda create -n bill-splitter python=3.11
-   conda activate bill-splitter
-   ```
-
-2. Install Python dependencies:
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   ```
-
-3. Run the backend:
-   ```bash
-   python run.py
-   ```
-
-#### Frontend Setup
-
-1. Install Node.js dependencies:
-   ```bash
-   cd frontend
-   npm install
-   ```
-
-2. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-## Usage
-
-1. **Select People**: Choose how many people are splitting the bill
-2. **Enter Names**: Add names and contact info for each participant
-3. **Upload Receipt**: Take a photo or upload an image of your receipt
-4. **Assign Items**: Assign each item to the person who ordered it
-5. **View Results**: See the final split with tax and tip calculations
-
-## API Endpoints
-
-### Receipt Processing
-- `POST /receipt/upload` - Upload receipt image
-- `POST /receipt/process/{receipt_id}` - Process receipt with AI
-- `GET /receipt/{receipt_id}` - Get receipt data
-- `DELETE /receipt/{receipt_id}` - Delete receipt
-
-### Bill Management
-- `POST /bill/split` - Create bill split
-- `GET /bill/{bill_id}` - Get bill split details
-- `PUT /bill/{bill_id}/assignments` - Update item assignments
-- `DELETE /bill/{bill_id}` - Delete bill split
-
-### Split Calculations
-- `POST /split/calculate` - Calculate bill split
-- `GET /split/{split_id}` - Get split calculation
-- `GET /split/` - List all splits
-- `DELETE /split/{split_id}` - Delete split
-
-## Development
-
-### Running Tests
-
-Backend tests:
-```bash
-cd backend
-pytest
+```sh
+docker compose up -d db api
+docker compose exec api python -m app.cli dev-seed
+cd web && npm install && npm run dev
 ```
 
-Frontend tests:
-```bash
-cd frontend
-npm test
+## Tests
+
+```sh
+docker compose run --rm test        # backend: pytest on real Postgres 16
+cd web && npm test                  # unit tests, incl. split-maths parity with the backend
+cd web && npm run e2e               # Playwright, desktop + Pixel 5 (needs the API running and seeded)
 ```
 
-### Building for Production
+The split and validation maths have one set of golden test vectors (`shared/split-vectors.json`) that both the Python core and the TypeScript mirror must reproduce exactly.
 
-Frontend:
-```bash
-cd frontend
-npm run build
+## Deploy
+
+Scripted end to end; see [`.skills/DEPLOYMENT.md`](.skills/DEPLOYMENT.md). Provisioning scripts are in `scripts/provision/`.
+
+## Layout
+
 ```
-
-Backend:
-```bash
-cd backend
-# The FastAPI app is ready for production deployment
+backend/   FastAPI app: api → services → core (pure maths) / repositories / integrations
+web/       the web app ("even")
+shared/    currencies + golden test vectors used by both sides
+scripts/   provisioning and smoke tests
+.skills/   briefs, handovers, design references
 ```
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Inspired by Splitwise's user experience
-- Built with modern web technologies
-- Uses Azure Document Intelligence for OCR
-- Powered by OpenAI for intelligent data extraction

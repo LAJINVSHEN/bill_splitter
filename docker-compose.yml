@@ -1,0 +1,65 @@
+# Local development + tests.
+#   docker compose up -d db api          → Postgres 16 on localhost:5433, API on http://localhost:8000
+#   docker compose run --rm test         → migrations + full pytest suite against Postgres 16
+# The api service reads the repo-root .env, but always talks to the compose database.
+name: bill-splitter
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bill_splitter
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/scripts/init-test-db.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d bill_splitter"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build: ./backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/bill_splitter
+      DATABASE_SSL: disable
+      STORAGE_BACKEND: local
+      LOCAL_STORAGE_DIR: /app/.local/storage
+      PUBLIC_APP_URL: http://localhost:5173
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir app"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ./.local:/app/.local
+    depends_on:
+      db:
+        condition: service_healthy
+
+  test:
+    build: ./backend
+    profiles: ["test"]
+    # No env_file on purpose: tests never see real keys and fake every provider.
+    environment:
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/bill_splitter_test
+      DATABASE_SSL: disable
+    command: sh -c "alembic upgrade head && pytest"
+    volumes:
+      - ./backend:/app/backend
+      - ./shared:/app/shared:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

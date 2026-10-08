@@ -1,0 +1,29 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "Item A", "quantity": 1, "unit_price": 0.50, "total_price": 0.50},
+    {"name": "Item B", "quantity": 1, "unit_price": 15.80, "total_price": 15.80},
+    {"name": "Item C", "quantity": 1, "unit_price": 4.60, "total_price": 4.60},
+    {"name": "Item D", "quantity": 1, "unit_price": 14.80, "total_price": 14.80}
+  ],
+  "subtotal": 35.70,
+  "taxes_or_charges": [
+    {"name": "Service Charge 5%", "amount": 1.79},
+    {"name": "Rounding", "amount": 0.01}
+  ],
+  "grand_total": 37.50,
+  "payment_method": "Unknown",
+  "currency": "MYR",
+  "_expect": {
+    "tax_scenario": "tax_exclusive",
+    "warnings": 0,
+    "items_count": 4,
+    "items_total_cents": 3570,
+    "charges_total_cents": 180,
+    "grand_total_cents": 3750,
+    "coverage": "Four adjudicated priced lines; continuation text is not a fifth item. Positive rounding and the repeated service summary are charged once. Single-photo OCR."
+  }
+}

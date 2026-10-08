@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>even · Admin (desktop)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1E44D8}a:hover{color:#1634A8}
+</style>
+</helmet>
+<div style="min-height: 900px; box-sizing: border-box; background: #FFFFFF; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; color: #0B0F19; display: flex; flex-wrap: wrap">
+
+  <aside style="flex: 1 1 248px; max-width: 100%; box-sizing: border-box; padding: 26px 20px; border-right: 1px solid #E5E8EE; display: flex; flex-direction: column; gap: 26px">
+    <a href="#" aria-label="even, home" style="display: flex; align-items: center; gap: 6px; color: #0B0F19; text-decoration: none; padding: 0 10px">
+      <span style="font-size: 28px; font-weight: 700; font-stretch: 118%; letter-spacing: -0.045em">even</span>
+      <span aria-hidden="true" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px"><span style="width: 15px; height: 3.5px; border-radius: 2px; background: #1E44D8"></span><span style="width: 15px; height: 3.5px; border-radius: 2px; background: #1E44D8"></span></span>
+    </a>
+    <a href="#" style="height: 48px; border-radius: 6px; background: #1E44D8; color: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 16px; font-weight: 700; text-decoration: none">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+      New bill
+    </a>
+    <nav aria-label="Main" style="display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="5">
+        <a href="#" aria-current="{{n.current}}" style="height: 44px; display: flex; align-items: center; gap: 10px; padding: 0 10px; border-radius: 6px; text-decoration: none; font-size: 16px; font-weight: {{n.weight}}; color: {{n.ink}}; background: {{n.bg}}">
+          <span aria-hidden="true" style="width: 14px; display: flex; flex-direction: column; gap: 3px; opacity: {{n.mark}}"><span style="height: 2.5px; background: #1E44D8"></span><span style="height: 2.5px; background: #1E44D8"></span></span>
+          {{n.label}}
+        </a>
+      </sc-for>
+    </nav>
+  </aside>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 40px clamp(20px, 3vw, 56px) 56px; display: flex; flex-direction: column; gap: 36px">
+    <h1 style="margin: 0; font-size: 34px; line-height: 1.05; font-weight: 650; font-stretch: 122%; letter-spacing: -0.04em">Admin</h1>
+
+    <section aria-label="This month" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 32px; border-top: 1.5px solid #0B0F19; padding-top: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 15px; font-weight: 600; color: #4A5163">Azure pages · October</span>
+        <span style="font-size: 32px; font-weight: 600; font-stretch: 122%; letter-spacing: -0.03em; font-variant-numeric: tabular-nums">212 <span style="font-size: 18px; color: #4A5163">/ 450</span></span>
+        <div role="meter" aria-label="Azure pages used" aria-valuemin="0" aria-valuemax="450" aria-valuenow="212" style="height: 5px; border-radius: 3px; background: #E5E8EE; overflow: hidden"><span style="display: block; width: 47%; height: 100%; background: #1E44D8"></span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 15px; font-weight: 600; color: #4A5163">OpenAI spend · October</span>
+        <span style="font-size: 32px; font-weight: 600; font-stretch: 122%; letter-spacing: -0.03em; font-variant-numeric: tabular-nums">$1.82 <span style="font-size: 18px; color: #4A5163">/ $8.00</span></span>
+        <div role="meter" aria-label="OpenAI budget used" aria-valuemin="0" aria-valuemax="800" aria-valuenow="182" style="height: 5px; border-radius: 3px; background: #E5E8EE; overflow: hidden"><span style="display: block; width: 23%; height: 100%; background: #1E44D8"></span></div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 15px; font-weight: 600; color: #4A5163">Models</span>
+        <span style="font-size: 17px; font-weight: 600">gpt-6-luna</span>
+        <span style="font-size: 15px; color: #4A5163">falls back to <span style="font-weight: 600; color: #0B0F19">gpt-6.1-sol</span> · 6% of scans</span>
+      </div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 40px; align-items: flex-start">
+      <section aria-labelledby="ad-users" style="flex: 999 1 560px; min-width: 0">
+        <h2 id="ad-users" style="margin: 0 0 6px; font-size: 20px; font-weight: 700; font-stretch: 115%; letter-spacing: -0.02em">Accounts</h2>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; min-width: 620px; border-collapse: collapse; font-size: 16px">
+            <thead>
+              <tr style="border-top: 1.5px solid #0B0F19; border-bottom: 1px solid #E5E8EE; text-align: left; font-size: 14px; color: #4A5163">
+                <th scope="col" style="padding: 10px 0; font-weight: 600">Account</th>
+                <th scope="col" style="padding: 10px 0; font-weight: 600; width: 200px">Scans this month</th>
+                <th scope="col" style="padding: 10px 0; font-weight: 600; width: 80px; text-align: right">Spend</th>
+                <th scope="col" style="padding: 10px 0; font-weight: 600; width: 110px; text-align: right">Last active</th>
+                <th scope="col" style="padding: 10px 0; width: 70px"><span style="position: absolute; left: -9999px">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{users}}" as="u" hint-placeholder-count="6">
+                <tr style="border-bottom: 1px solid #E5E8EE">
+                  <td style="padding: 12px 0">
+                    <span style="display: flex; flex-direction: column">
+                      <span style="font-weight: 600">{{u.name}} <span style="font-weight: 500; color: #4A5163">@{{u.username}}</span></span>
+                      <span style="font-size: 14px; font-weight: 600; color: {{u.tagInk}}">{{u.tag}}</span>
+                    </span>
+                  </td>
+                  <td style="padding: 12px 16px 12px 0">
+                    <span style="display: flex; align-items: center; gap: 10px">
+                      <span style="flex: 1; height: 5px; border-radius: 3px; background: #E5E8EE; overflow: hidden"><span style="display: block; height: 100%; width: {{u.pct}}; background: {{u.bar}}"></span></span>
+                      <span style="width: 52px; text-align: right; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums">{{u.scans}}</span>
+                    </span>
+                  </td>
+                  <td style="padding: 12px 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums">{{u.spend}}</td>
+                  <td style="padding: 12px 0; text-align: right; color: #4A5163">{{u.last}}</td>
+                  <td style="padding: 12px 0; text-align: right"><a href="#" style="font-size: 15px; font-weight: 700; text-decoration: none">Edit</a></td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="ad-new" style="flex: 1 1 300px; min-width: 0; box-sizing: border-box; padding: 20px; background: #F5F7FA; border-radius: 8px; display: flex; flex-direction: column; gap: 14px">
+        <h2 id="ad-new" style="margin: 0; font-size: 20px; font-weight: 700; font-stretch: 115%; letter-spacing: -0.02em">New account</h2>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="nu" style="font-size: 14px; font-weight: 600">Username</label>
+          <input id="nu" value="meiling" style="height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #0B0F19; border-radius: 6px; background: #FFFFFF; font: 500 16px 'Archivo', system-ui, sans-serif; color: #0B0F19">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="nn" style="font-size: 14px; font-weight: 600">Name</label>
+          <input id="nn" value="Mei Ling" style="height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #0B0F19; border-radius: 6px; background: #FFFFFF; font: 500 16px 'Archivo', system-ui, sans-serif; color: #0B0F19">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="np" style="font-size: 14px; font-weight: 600">Temporary password</label>
+          <div style="display: flex; gap: 8px">
+            <input id="np" value="kopi-tarik-73" readonly style="flex: 1; min-width: 0; height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #0B0F19; border-radius: 6px; background: #FFFFFF; font: 600 16px 'Archivo', system-ui, sans-serif; color: #0B0F19">
+            <button type="button" style="height: 44px; padding: 0 14px; border-radius: 6px; border: 1.5px solid #0B0F19; background: #FFFFFF; font: 600 15px 'Archivo', system-ui, sans-serif; color: #0B0F19; cursor: pointer">Copy</button>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="nq" style="font-size: 14px; font-weight: 600">Scans / month</label>
+            <input id="nq" value="30" inputmode="numeric" style="height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #0B0F19; border-radius: 6px; background: #FFFFFF; font: 600 16px 'Archivo', system-ui, sans-serif; color: #0B0F19">
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6px">
+            <label for="nr" style="font-size: 14px; font-weight: 600">Role</label>
+            <select id="nr" style="height: 44px; padding: 0 10px; border: 1.5px solid #0B0F19; border-radius: 6px; background: #FFFFFF; font: 600 16px 'Archivo', system-ui, sans-serif; color: #0B0F19"><option>Member</option></select>
+          </div>
+        </div>
+        <button type="button" style="height: 50px; border: 0; border-radius: 6px; background: #1E44D8; color: #FFFFFF; font: 700 16px 'Archivo', system-ui, sans-serif; cursor: pointer">Create account</button>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const nav = (label, active) => ({ label, current: active ? 'page' : 'false', weight: active ? 700 : 600, ink: active ? '#0B0F19' : '#4A5163', bg: active ? '#F5F7FA' : 'transparent', mark: active ? 1 : 0 });
+    const u = (name, username, used, quota, spend, last, tag, tagInk) => ({
+      name, username, spend, last, tag, tagInk,
+      scans: used + ' / ' + quota,
+      pct: Math.round((used / quota) * 100) + '%',
+      bar: used >= quota ? '#9A4A00' : '#1E44D8'
+    });
+    return {
+      nav: [nav('Home'), nav('Bills'), nav('People'), nav('Account'), nav('Admin', true)],
+      users: [
+        u('George', 'george', 12, 30, '$0.41', 'Today', 'Admin', '#1E44D8'),
+        u('Wei Jie', 'weijie', 30, 30, '$0.62', 'Today', 'At limit · scanning paused', '#9A4A00'),
+        u('Aina', 'aina', 9, 30, '$0.24', 'Yesterday', 'Member', '#4A5163'),
+        u('Priya', 'priya', 6, 30, '$0.19', '3 Oct', 'Member', '#4A5163'),
+        u('Daniel', 'daniel', 2, 20, '$0.05', '28 Sep', 'Must change password', '#9A4A00'),
+        u('Hafiz', 'hafiz', 0, 20, '$0.00', 'Never', 'Member', '#4A5163')
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

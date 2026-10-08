@@ -1,11 +1,12 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/UI/Card';
+import { Card, CardContent, CardTitle } from '@/components/UI/Card';
 import { Button } from '@/components/UI/Button';
 import { PersonSplit } from '@/types/split.types';
 import { formatCurrency } from '@/utils/formatters';
 import { downloadFile } from '@/utils/fileHelpers';
 import { toPng } from 'html-to-image';
-import { Receipt, User, Calculator, Download, Share2, Users, Copy } from 'lucide-react';
+import { Receipt, User, Calculator, Download, Share2, Users, Copy, Send } from 'lucide-react';
+import { SplitwiseExportWizard } from '@/components/SplitwiseExport/SplitwiseExportWizard';
 
 export interface SplitSummaryProps {
   personSplits: PersonSplit[];
@@ -37,6 +38,7 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
   const [isExportingAllPng, setIsExportingAllPng] = useState(false);
   const [isCopyingAll, setIsCopyingAll] = useState(false);
   const [copiedAll, setCopiedAll] = useState(false);
+  const [isSplitwiseWizardOpen, setIsSplitwiseWizardOpen] = useState(false);
 
   const handlePrint = () => {
     window.print();
@@ -182,63 +184,48 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
   };
 
   return (
-    <div ref={exportRootRef} className="max-w-4xl mx-auto space-y-6">
+    <div ref={exportRootRef} className="max-w-4xl mx-auto space-y-5 px-4 sm:px-5">
+      <SplitwiseExportWizard
+        isOpen={isSplitwiseWizardOpen}
+        onClose={() => setIsSplitwiseWizardOpen(false)}
+        personSplits={personSplits}
+        totalBill={totalBill}
+      />
       {/* Header */}
-      <Card>
-        <CardHeader className="text-center">
-          <div className="mx-auto w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-            <Calculator className="h-8 w-8 text-green-600" />
+      <Card padding="none" className="overflow-hidden">
+        <CardContent className="p-4 md:p-5 flex items-center gap-3 md:gap-4">
+          <div className="w-10 h-10 md:w-12 md:h-12 bg-green-100 rounded-full flex items-center justify-center">
+            <Calculator className="h-5 w-5 md:h-6 md:w-6 text-green-600" />
           </div>
-          <CardTitle>Bill Split Complete!</CardTitle>
-          <CardDescription>
-            Here's how much each person owes
-          </CardDescription>
-        </CardHeader>
+          <div className="min-w-0">
+            <CardTitle className="text-lg md:text-xl leading-tight">Bill split complete</CardTitle>
+          </div>
+        </CardContent>
       </Card>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">
-              {formatCurrency(totalBill)}
-            </div>
-            <div className="text-sm text-gray-500">Total Bill</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">
-              {formatCurrency(totalTax)}
-            </div>
-            <div className="text-sm text-gray-500">Tax</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">
-              {formatCurrency(totalServiceCharge)}
-            </div>
-            <div className="text-sm text-gray-500">Service Charge</div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-gray-900">
-              {formatCurrency(totalDiscount)}
-            </div>
-            <div className="text-sm text-gray-500">Discount</div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Compact totals widget */}
+      <Card padding="none" className="overflow-hidden">
+        <CardContent className="p-4 md:p-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Total', value: formatCurrency(totalBill) },
+              { label: 'Tax', value: formatCurrency(totalTax) },
+              { label: 'Service', value: formatCurrency(totalServiceCharge) },
+              { label: 'Discount', value: formatCurrency(totalDiscount) },
+            ].map((stat) => (
+              <div key={stat.label} className="rounded-lg border border-gray-200 bg-white px-3 py-2 md:px-3.5 md:py-2.5 text-sm">
+                <div className="text-xs text-gray-500">{stat.label}</div>
+                <div className="text-base md:text-lg font-semibold text-gray-900 mt-1">{stat.value}</div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Person Splits */}
-      <div className="space-y-4">
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Individual Splits</h3>
+          <h3 className="text-base md:text-lg font-semibold text-gray-900">Individual splits</h3>
           <div className="flex items-center gap-2" data-export-ignore="true">
             <Button
               onClick={handleDownloadAllPng}
@@ -247,7 +234,7 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
               disabled={disabled || isExportingAllPng}
               leftIcon={<Download className="h-3 w-3" />}
             >
-              {isExportingAllPng ? 'Downloading…' : 'Download All'}
+              {isExportingAllPng ? 'Downloading...' : 'Download All'}
             </Button>
             <Button
               onClick={handleCopyAll}
@@ -261,29 +248,29 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
           </div>
         </div>
         {personSplits.map((split) => (
-          <Card key={split.person_id} ref={(el: HTMLDivElement | null) => { personCardRefs.current[split.person_id] = el; }}>
-            <CardContent className="p-5 md:p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center space-x-3">
-                  <div className="w-12 h-12 md:w-10 md:h-10 bg-primary-100 rounded-full flex items-center justify-center">
-                    <User className="h-6 w-6 md:h-5 md:w-5 text-primary-600" />
+          <Card key={split.person_id} padding="none" ref={(el: HTMLDivElement | null) => { personCardRefs.current[split.person_id] = el; }}>
+            <CardContent className="p-4 md:p-5 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center space-x-3 min-w-0">
+                  <div className="w-9 h-9 md:w-10 md:h-10 bg-primary-100 rounded-full flex items-center justify-center shrink-0">
+                    <User className="h-5 w-5 text-primary-600" />
                   </div>
-                  <div>
-                    <h4 className="text-lg md:text-base font-semibold text-gray-900">{split.person_name}</h4>
-                    <p className="text-base md:text-sm text-gray-500">
+                  <div className="min-w-0">
+                    <h4 className="text-base md:text-lg font-semibold text-gray-900 truncate">{split.person_name}</h4>
+                    <p className="text-xs md:text-sm text-gray-500">
                       {split.items.length} item(s)
                     </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-3xl md:text-2xl font-bold text-gray-900">
+                <div className="text-right shrink-0">
+                  <div className="text-xl md:text-2xl font-bold text-gray-900">
                     {formatCurrency(split.total)}
                   </div>
-                  <div className="text-base md:text-sm text-gray-500">Total</div>
+                  <div className="text-xs md:text-sm text-gray-500">Total</div>
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 mb-4" data-export-ignore="true">
+              <div className="flex items-center justify-end gap-2" data-export-ignore="true">
                 <Button
                   onClick={() => handleDownloadPersonPng(split)}
                   variant="outline"
@@ -291,7 +278,7 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
                   disabled={disabled || isExportingPngByPersonId[split.person_id]}
                   leftIcon={<Download className="h-3 w-3" />}
                 >
-                  {isExportingPngByPersonId[split.person_id] ? 'Downloading…' : 'Download'}
+                  {isExportingPngByPersonId[split.person_id] ? 'Downloading...' : 'Download'}
                 </Button>
                 <Button
                   onClick={() => handleCopyPerson(split)}
@@ -305,23 +292,25 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
               </div>
 
               {/* Items breakdown */}
-              <div className="space-y-2">
-                <h5 className="text-base md:text-sm font-medium text-gray-700">Items:</h5>
+              <div className="space-y-1.5">
+                <h5 className="text-sm font-medium text-gray-700">Items</h5>
                 <div className="space-y-1">
                   {split.items.map((item: any, itemIndex) => (
-                    <div key={itemIndex} className="flex justify-between text-base md:text-sm">
-                      <span className="text-gray-600 flex items-center">
-                        {item.quantity}x {item.name}
+                    <div key={itemIndex} className="flex justify-between items-center text-sm md:text-base">
+                      <span className="text-gray-600 flex items-center gap-2 min-w-0">
+                        <span className="truncate">
+                          {item.quantity}x {item.name}
+                        </span>
                         {item.isSplit && (
-                          <span className="ml-2 inline-flex items-center">
+                          <span className="inline-flex items-center whitespace-nowrap">
                             <Users className="h-3 w-3 text-blue-500 mr-1" />
-                            <span className="text-xs text-blue-600">
+                            <span className="text-[11px] text-blue-600">
                               ({item.splitPercentage?.toFixed(1)}%)
                             </span>
                           </span>
                         )}
                       </span>
-                      <span className="font-medium">
+                      <span className="font-medium shrink-0 text-gray-900">
                         {formatCurrency(item.total_price)}
                       </span>
                     </div>
@@ -330,28 +319,28 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
               </div>
 
               {/* Cost breakdown */}
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <div className="space-y-1 text-base md:text-sm">
+              <div className="pt-3 border-t border-gray-200">
+                <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Subtotal:</span>
+                    <span className="text-gray-600">Subtotal</span>
                     <span>{formatCurrency(split.subtotal)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Tax:</span>
+                    <span className="text-gray-600">Tax</span>
                     <span>{formatCurrency(split.tax_share)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Service Charge:</span>
+                    <span className="text-gray-600">Service</span>
                     <span>{formatCurrency(split.service_charge_share)}</span>
                   </div>
                   {split.discount_share > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Discount:</span>
+                      <span className="text-gray-600">Discount</span>
                       <span className="text-green-600">-{formatCurrency(split.discount_share)}</span>
                     </div>
                   )}
                   <div className="flex justify-between font-semibold text-gray-900 pt-2 border-t border-gray-200">
-                    <span>Total:</span>
+                    <span>Total</span>
                     <span>{formatCurrency(split.total)}</span>
                   </div>
                 </div>
@@ -362,9 +351,17 @@ export const SplitSummary: React.FC<SplitSummaryProps> = ({
       </div>
 
       {/* Action Buttons */}
-      <Card>
-        <CardContent className="p-6" data-export-ignore="true">
-          <div className="flex flex-wrap gap-3 justify-center">
+      <Card padding="none">
+        <CardContent className="p-4 md:p-5" data-export-ignore="true">
+          <div className="flex flex-wrap gap-2 md:gap-3 justify-center">
+            <Button
+              onClick={() => setIsSplitwiseWizardOpen(true)}
+              variant="primary"
+              disabled={disabled}
+              leftIcon={<Send className="h-4 w-4" />}
+            >
+              Export to Splitwise
+            </Button>
             <Button
               onClick={onModifyAssignment}
               variant="secondary"

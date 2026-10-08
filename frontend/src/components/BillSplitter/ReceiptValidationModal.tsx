@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { X, Plus, Trash2, ZoomIn, ZoomOut, CheckCircle, AlertCircle, GripVertical } from 'lucide-react';
 import { DndContext, DragOverlay, PointerSensor, TouchSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -39,13 +39,24 @@ interface ExtractedData {
   notes?: string;
 }
 
+type ItemDraft = {
+  quantity?: string;
+  unit_price?: string;
+};
+
+type TaxDraft = {
+  percent?: string;
+  amount?: string;
+  lastEdited?: 'percent' | 'amount';
+};
+
 interface ValidationModalProps {
   isOpen: boolean;
   onClose: () => void;
   imageUrl: string;
   extractedData: ExtractedData;
   validationErrors: any;
-  onValidate: (editedData: ExtractedData) => void;
+  onValidate: (editedData: ExtractedData, options?: { auto?: boolean }) => void;
 }
 
 export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
@@ -64,8 +75,12 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
   const editorScrollRef = useRef<HTMLDivElement | null>(null);
   const itemRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const itemNameInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const itemQtyInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const itemUnitInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const taxRowRefs = useRef<Array<HTMLDivElement | null>>([]);
   const taxNameInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const taxPercentInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const taxAmountInputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const [lastAddedItemId, setLastAddedItemId] = useState<string | null>(null);
   const [lastAddedTaxIndex, setLastAddedTaxIndex] = useState<number | null>(null);
   const imageContainerRef = useRef<HTMLDivElement | null>(null);
@@ -145,17 +160,61 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
     };
   };
 
+  const createEmptyItem = (id?: string): BillItem => ({
+    __id: id ?? makeId(),
+    name: '',
+    quantity: 1,
+    unit_price: 0,
+    total_price: 0,
+  });
+
+  const normalizeTax = (tax: TaxOrCharge): TaxOrCharge => ({
+    name: tax.name || '',
+    amount: Number.isFinite(tax.amount) ? tax.amount : 0,
+    percent: Number.isFinite(tax.percent) ? tax.percent : 0,
+  });
+
+  const getTaxAmount = (tax: TaxOrCharge, currentSubtotal: number) => {
+    if (tax.percent !== undefined && tax.percent !== null && tax.percent !== 0) {
+      return roundMoney(((tax.percent || 0) / 100) * currentSubtotal);
+    }
+    return roundMoney(tax.amount || 0);
+  };
+
   const [items, setItems] = useState<BillItem[]>(() =>
     (extractedData.items || []).map(normalizeItem)
   );
-  const [taxes, setTaxes] = useState<TaxOrCharge[]>(() => extractedData.taxes_or_charges || []);
+  const [taxes, setTaxes] = useState<TaxOrCharge[]>(() =>
+    (extractedData.taxes_or_charges || []).map(normalizeTax)
+  );
+  const [activeInsertTarget, setActiveInsertTarget] = useState<string | null>(null);
+  const [itemDrafts, setItemDrafts] = useState<Record<string, ItemDraft>>({});
+  const [taxDrafts, setTaxDrafts] = useState<Record<number, TaxDraft>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const activeFieldRef = useRef<{ type: 'item' | 'tax'; id: string; field: string } | null>(null);
 
   if (!isOpen) return null;
 
+  const dataKey = useMemo(
+    () =>
+      [
+        extractedData.receipt_number ?? '',
+        extractedData.date ?? '',
+        extractedData.time ?? '',
+        extractedData.store?.name ?? '',
+      ].join('|'),
+    [extractedData]
+  );
+  const hydratedDataKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isOpen) return;
+    // Only hydrate when opening or when a different receipt is loaded.
+    if (hydratedDataKeyRef.current === dataKey) return;
+    hydratedDataKeyRef.current = dataKey;
+
     setItems((extractedData.items || []).map(normalizeItem));
-    setTaxes(extractedData.taxes_or_charges || []);
+    setTaxes((extractedData.taxes_or_charges || []).map(normalizeTax));
     setZoom(1);
     setMinZoom(0.5);
     setPan({ x: 0, y: 0 });
@@ -164,10 +223,22 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
     setLastAddedTaxIndex(null);
     itemRowRefs.current = {};
     itemNameInputRefs.current = {};
+    itemQtyInputRefs.current = {};
+    itemUnitInputRefs.current = {};
+    setItemDrafts({});
+    setTaxDrafts({});
+    setFieldErrors({});
     pointersRef.current.clear();
     pinchRef.current.isPinching = false;
     panRef.current.isPanning = false;
-  }, [isOpen, extractedData]);
+    setActiveInsertTarget(null);
+  }, [isOpen, dataKey, extractedData]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      hydratedDataKeyRef.current = null;
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     const container = imageContainerRef.current;
@@ -202,49 +273,323 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
     setPan({ x: 0, y: 0 });
   }, [isOpen, containerSize, imageSize]);
 
-  const handleAddItem = () => {
+  const handleInsertItem = (index: number, position: 'above' | 'below') => {
+    const nextId = makeId();
+    const newItem = createEmptyItem(nextId);
+    setLastAddedItemId(nextId);
     setItems((prev) => {
-      const nextId = makeId();
-      setLastAddedItemId(nextId);
-      return [...prev, { __id: nextId, name: '', quantity: 1, unit_price: 0, total_price: 0 }];
+      const updated = [...prev];
+      const targetIndex = position === 'above' ? index : index + 1;
+      updated.splice(targetIndex, 0, newItem);
+      return updated;
+    });
+    setActiveInsertTarget(null);
+  };
+
+  const handleAddItemToEnd = () => {
+    const nextId = makeId();
+    setLastAddedItemId(nextId);
+    setItems((prev) => [...prev, createEmptyItem(nextId)]);
+  };
+
+  const isValidNumericString = (value: string) => /^-?\d*(\.\d*)?$/.test(value.trim());
+  const isValidIntegerString = (value: string) => /^\d*$/.test(value.trim());
+
+  const parseNumberInput = (value: string | undefined, fallback: number) => {
+    if (value === undefined) return fallback;
+    const trimmed = value.trim();
+    if (trimmed === '') return 0;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const commitAllDrafts = useCallback(() => {
+    const applyItemDrafts = (sourceItems: BillItem[]) => {
+      const nextItems = sourceItems.map((item) => {
+        const draft = itemDrafts[item.__id ?? ''];
+        if (!draft) return item;
+        const quantity = draft.quantity !== undefined && draft.quantity.trim() !== ''
+          ? parseInt(draft.quantity, 10)
+          : item.quantity;
+        const unit_price = parseNumberInput(draft.unit_price, item.unit_price);
+        return normalizeItem({ ...item, quantity, unit_price });
+      });
+      return nextItems;
+    };
+
+    const applyTaxDrafts = (sourceTaxes: TaxOrCharge[], currentSubtotal: number) => {
+      const nextTaxes = sourceTaxes.map((tax, index) => {
+        const draft = taxDrafts[index];
+        if (!draft) return tax;
+        const normalized = normalizeTax(tax);
+        const source = draft.lastEdited;
+
+        if (source === 'percent') {
+          const percent = parseNumberInput(draft.percent, normalized.percent ?? 0);
+          const amount = roundMoney((percent / 100) * currentSubtotal);
+          return { ...normalized, percent, amount };
+        }
+
+        if (source === 'amount') {
+          const amount = parseNumberInput(draft.amount, normalized.amount ?? 0);
+          const percent = currentSubtotal > 0 ? roundMoney((amount / currentSubtotal) * 100) : 0;
+          return { ...normalized, amount, percent };
+        }
+
+        return normalized;
+      });
+
+      return nextTaxes;
+    };
+
+    const nextItems = applyItemDrafts(items);
+    const nextSubtotal = roundMoney(
+      nextItems.reduce((sum, item) => sum + (item.total_price || 0), 0)
+    );
+    const nextTaxes = applyTaxDrafts(taxes, nextSubtotal);
+    const nextTaxesTotal = roundMoney(
+      nextTaxes.reduce((sum, tax) => sum + getTaxAmount(tax, nextSubtotal), 0)
+    );
+    const nextGrandTotal = roundMoney(nextSubtotal + nextTaxesTotal);
+
+    setItems(nextItems);
+    setTaxes(nextTaxes);
+    setItemDrafts({});
+    setTaxDrafts({});
+
+    return {
+      nextItems,
+      nextTaxes,
+      nextSubtotal,
+      nextGrandTotal,
+    };
+  }, [items, itemDrafts, taxes, taxDrafts]);
+
+  const handleValidate = useCallback(() => {
+    const { nextItems, nextTaxes, nextSubtotal, nextGrandTotal } = commitAllDrafts();
+
+    const editedData: ExtractedData = {
+      ...extractedData,
+      items: nextItems,
+      taxes_or_charges: nextTaxes.map((tax) => ({
+        ...tax,
+        amount: getTaxAmount(tax, nextSubtotal),
+      })),
+      subtotal: nextSubtotal,
+      grand_total: nextGrandTotal,
+    };
+
+    onValidate(editedData);
+  }, [commitAllDrafts, extractedData, onValidate]);
+
+  const commitItemDraft = (id: string) => {
+    const draft = itemDrafts[id];
+    if (!draft) return;
+
+    // Validate numeric strings before commit
+    if (draft.quantity !== undefined && draft.quantity !== '' && !isValidNumericString(draft.quantity)) {
+      setFieldErrors((prev) => ({ ...prev, [`item-${id}-quantity`]: 'Enter a number' }));
+      return;
+    }
+    if (draft.unit_price !== undefined && draft.unit_price !== '' && !isValidNumericString(draft.unit_price)) {
+      setFieldErrors((prev) => ({ ...prev, [`item-${id}-unit_price`]: 'Enter a number' }));
+      return;
+    }
+
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[`item-${id}-quantity`];
+      delete next[`item-${id}-unit_price`];
+      return next;
+    });
+
+    setItems((prev) => {
+      const updated = prev.map((item) => {
+        const currentId = item.__id ?? '';
+        if (currentId !== id) return item;
+
+        const quantity = draft.quantity !== undefined && draft.quantity.trim() !== ''
+          ? parseInt(draft.quantity, 10)
+          : item.quantity;
+        const unit_price = parseNumberInput(draft.unit_price, item.unit_price);
+        return normalizeItem({ ...item, quantity, unit_price });
+      });
+      return updated;
+    });
+
+    setItemDrafts((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
   };
 
   const handleDeleteItem = (index: number) => {
+    const targetId = items[index]?.__id;
+    if (targetId && activeInsertTarget === targetId) {
+      setActiveInsertTarget(null);
+    }
     setItems(items.filter((_, i) => i !== index));
+    if (targetId) {
+      setItemDrafts((prev) => {
+        if (!prev[targetId]) return prev;
+        const next = { ...prev };
+        delete next[targetId];
+        return next;
+      });
+    }
   };
 
-  const handleItemChange = (index: number, field: keyof BillItem, value: any) => {
-    if (field === 'total_price') return; // computed
-
-    setItems(prev => {
+  const handleItemNameChange = (index: number, value: string) => {
+    setItems((prev) => {
       const updated = [...prev];
-      const current = updated[index];
-      if (!current) return prev;
-
-      const next: BillItem = { ...current, [field]: value };
-      if (field === 'quantity' || field === 'unit_price') {
-        const quantity = Number.isFinite(next.quantity) ? next.quantity : 0;
-        const unit_price = Number.isFinite(next.unit_price) ? next.unit_price : 0;
-        next.total_price = roundMoney(quantity * unit_price);
-      }
-
-      updated[index] = next;
+      if (!updated[index]) return prev;
+      updated[index] = { ...updated[index], name: value };
       return updated;
     });
+    const id = items[index]?.__id ?? '';
+    activeFieldRef.current = { type: 'item', id, field: 'name' };
   };
 
-  const handleTaxChange = (index: number, field: keyof TaxOrCharge, value: any) => {
-    const updated = [...taxes];
-    updated[index] = { ...updated[index], [field]: value };
-    setTaxes(updated);
+  const handleItemNumericInputChange = (itemId: string, field: keyof ItemDraft, value: string) => {
+    const isQuantity = field === 'quantity';
+    const valid = isQuantity ? isValidIntegerString(value) : isValidNumericString(value);
+    if (value !== '' && !valid) {
+      setFieldErrors((prev) => ({
+        ...prev,
+        [`item-${itemId}-${field}`]: isQuantity ? 'Enter a whole number' : 'Enter a number',
+      }));
+      return;
+    }
+
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[`item-${itemId}-${field}`];
+      return next;
+    });
+
+    activeFieldRef.current = { type: 'item', id: itemId, field };
+    setItemDrafts((prev) => ({
+      ...prev,
+      [itemId]: {
+        ...prev[itemId],
+        [field]: value,
+      },
+    }));
+  };
+
+  const getItemInputValue = (item: BillItem, field: keyof ItemDraft) => {
+    const draft = itemDrafts[item.__id ?? ''];
+    const draftValue = draft?.[field];
+    if (draftValue !== undefined) return draftValue;
+
+    const raw = field === 'quantity' ? item.quantity : item.unit_price;
+    return raw === 0 ? '' : String(raw ?? '');
+  };
+
+  const handleTaxNameChange = (index: number, name: string) => {
+    setTaxes((prev) => {
+      const updated = [...prev];
+      const current = updated[index] ?? { name: '', amount: 0, percent: 0 };
+      updated[index] = { ...current, name };
+      return updated;
+    });
+    activeFieldRef.current = { type: 'tax', id: String(index), field: 'name' };
+  };
+
+  const handleTaxPercentInputChange = (index: number, value: string) => {
+    if (value !== '' && !isValidNumericString(value)) {
+      setFieldErrors((prev) => ({ ...prev, [`tax-${index}-percent`]: 'Enter a number' }));
+      return;
+    }
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[`tax-${index}-percent`];
+      return next;
+    });
+    activeFieldRef.current = { type: 'tax', id: String(index), field: 'percent' };
+    setTaxDrafts((prev) => ({
+      ...prev,
+      [index]: { ...prev[index], percent: value, lastEdited: 'percent' },
+    }));
+  };
+
+  const handleTaxAmountInputChange = (index: number, value: string) => {
+    if (value !== '' && !isValidNumericString(value)) {
+      setFieldErrors((prev) => ({ ...prev, [`tax-${index}-amount`]: 'Enter a number' }));
+      return;
+    }
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[`tax-${index}-amount`];
+      return next;
+    });
+    activeFieldRef.current = { type: 'tax', id: String(index), field: 'amount' };
+    setTaxDrafts((prev) => ({
+      ...prev,
+      [index]: { ...prev[index], amount: value, lastEdited: 'amount' },
+    }));
+  };
+
+  const getTaxInputValue = (index: number, field: keyof Pick<TaxDraft, 'amount' | 'percent'>, fallback: number) => {
+    const draft = taxDrafts[index];
+    const draftValue = draft?.[field];
+    if (draftValue !== undefined) return draftValue;
+    return fallback === 0 ? '' : String(fallback);
+  };
+
+  const commitTaxDraft = (index: number, source: 'percent' | 'amount') => {
+    const draft = taxDrafts[index];
+    if (!draft) return;
+
+    const percentKey = `tax-${index}-percent`;
+    const amountKey = `tax-${index}-amount`;
+
+    if (draft.percent !== undefined && draft.percent !== '' && !isValidNumericString(draft.percent)) {
+      setFieldErrors((prev) => ({ ...prev, [percentKey]: 'Enter a number' }));
+      return;
+    }
+    if (draft.amount !== undefined && draft.amount !== '' && !isValidNumericString(draft.amount)) {
+      setFieldErrors((prev) => ({ ...prev, [amountKey]: 'Enter a number' }));
+      return;
+    }
+
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[percentKey];
+      delete next[amountKey];
+      return next;
+    });
+
+    setTaxes((prev) => {
+      const updated = [...prev];
+      const current = normalizeTax(updated[index] ?? { name: '', amount: 0, percent: 0 });
+
+      if (source === 'percent') {
+        const percent = parseNumberInput(draft.percent, current.percent ?? 0);
+        const amount = roundMoney((percent / 100) * subtotal);
+        updated[index] = { ...current, percent, amount };
+      } else {
+        const amount = parseNumberInput(draft.amount, current.amount ?? 0);
+        const percent = subtotal > 0 ? roundMoney((amount / subtotal) * 100) : 0;
+        updated[index] = { ...current, amount, percent };
+      }
+
+      return updated;
+    });
+
+    setTaxDrafts((prev) => {
+      const next = { ...prev };
+      delete next[index];
+      return next;
+    });
   };
 
   const handleAddTax = () => {
     setTaxes((prev) => {
       const nextIndex = prev.length;
       setLastAddedTaxIndex(nextIndex);
-      return [...prev, { name: '', amount: 0 }];
+      return [...prev, { name: '', amount: 0, percent: 0 }];
     });
   };
 
@@ -276,6 +621,61 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
     });
   }, [isOpen, lastAddedTaxIndex, taxes.length]);
 
+  useEffect(() => {
+    if (!activeInsertTarget) return;
+    const handleOutsideClick = (event: PointerEvent) => {
+      const activeRow = itemRowRefs.current[activeInsertTarget];
+      if (!activeRow) {
+        setActiveInsertTarget(null);
+        return;
+      }
+      if (event.target instanceof Node && activeRow.contains(event.target)) {
+        return;
+      }
+      setActiveInsertTarget(null);
+    };
+
+    document.addEventListener('pointerdown', handleOutsideClick);
+    return () => document.removeEventListener('pointerdown', handleOutsideClick);
+  }, [activeInsertTarget]);
+
+  useEffect(() => {
+    if (!activeInsertTarget) return;
+    if (!items.some((item) => item.__id === activeInsertTarget)) {
+      setActiveInsertTarget(null);
+    }
+  }, [items, activeInsertTarget]);
+
+  useLayoutEffect(() => {
+    const active = activeFieldRef.current;
+    if (!active) return;
+
+    const focusTarget = (() => {
+      if (active.type === 'item') {
+        if (active.field === 'name') return itemNameInputRefs.current[active.id] || null;
+        if (active.field === 'quantity') return itemQtyInputRefs.current[active.id] || null;
+        if (active.field === 'unit_price') return itemUnitInputRefs.current[active.id] || null;
+      }
+      if (active.type === 'tax') {
+        const idx = Number(active.id);
+        if (active.field === 'name') return taxNameInputRefs.current[idx] || null;
+        if (active.field === 'percent') return taxPercentInputRefs.current[idx] || null;
+        if (active.field === 'amount') return taxAmountInputRefs.current[idx] || null;
+      }
+      return null;
+    })();
+
+    if (focusTarget && document.activeElement !== focusTarget) {
+      focusTarget.focus();
+      const len = focusTarget.value?.length ?? 0;
+      try {
+        focusTarget.setSelectionRange(len, len);
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [items, taxes, itemDrafts, taxDrafts]);
+
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const activeDragItem = useMemo(() => {
     if (!activeDragId) return null;
@@ -296,10 +696,17 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
     });
   };
 
+  const toggleInsertMenu = (id: string) => {
+    setActiveInsertTarget((prev) => (prev === id ? null : id));
+  };
+
   const SortableItemRow: React.FC<{
     item: BillItem;
     index: number;
-  }> = ({ item, index }) => {
+    isInsertMenuOpen: boolean;
+    onToggleInsertMenu: (id: string) => void;
+    onInsert: (index: number, position: 'above' | 'below') => void;
+  }> = ({ item, index, isInsertMenuOpen, onToggleInsertMenu, onInsert }) => {
     const id = item.__id ?? `${index}`;
     const {
       attributes,
@@ -321,98 +728,203 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
       <div
         ref={(el) => {
           setNodeRef(el);
-          if (item.__id) itemRowRefs.current[item.__id] = el;
+          if (id) itemRowRefs.current[id] = el;
         }}
         style={style}
         className={[
-          'relative grid grid-cols-12 gap-2 p-2 pr-10 bg-white border border-gray-200 rounded-md',
-          isDragging ? 'shadow-lg ring-2 ring-primary-200' : '',
+          'px-0 py-2.5 transition-all',
+          isDragging ? 'rounded-lg bg-white px-2 py-2.5 shadow-md ring-2 ring-primary-200' : '',
         ].join(' ')}
       >
-        <button
-          ref={setActivatorNodeRef}
-          type="button"
-          className="md:hidden absolute left-2 top-2 p-1 text-gray-400 hover:text-gray-600"
-          style={{ touchAction: 'none' }}
-          aria-label="Reorder item"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical className="h-4 w-4" />
-        </button>
+        <div className="mb-2 flex items-center justify-end md:hidden">
+          <div className="flex items-center gap-2">
+            <button
+              ref={setActivatorNodeRef}
+              type="button"
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-slate-500 hover:border-slate-300 hover:bg-slate-200/70 hover:text-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 cursor-grab active:cursor-grabbing"
+              style={{ touchAction: 'none' }}
+              aria-label="Reorder item"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => handleDeleteItem(index)}
+              className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
+              type="button"
+              aria-label="Delete item"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
 
-        <input
-          type="text"
-          value={item.name}
-          onChange={(e) => handleItemChange(index, 'name', e.target.value)}
-          placeholder="Item name"
-          ref={(el) => {
-            if (item.__id) itemNameInputRefs.current[item.__id] = el;
-          }}
-          className="col-span-12 md:col-span-6 h-9 pl-9 md:pl-2 pr-2 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        />
-        <input
-          type="number"
-          value={item.quantity}
-          onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
-          placeholder="Qty"
-          className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1 border rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-        />
-        <input
-          type="number"
-          step="0.01"
-          value={item.unit_price}
-          onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-          placeholder="Unit"
-          className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1 border rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-        />
-        <input
-          type="number"
-          step="0.01"
-          value={item.total_price}
-          readOnly
-          tabIndex={-1}
-          aria-readonly="true"
-          className="col-span-4 md:col-span-2 h-9 self-center px-2 py-1 border rounded-md text-sm text-right bg-gray-50 text-gray-700 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-        />
-        <button
-          onClick={() => handleDeleteItem(index)}
-          className="absolute right-2 top-2 md:top-1/2 md:-translate-y-1/2 p-1 text-red-500 hover:bg-red-50 rounded"
-          type="button"
-          aria-label="Delete item"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-[28px_minmax(0,1fr)_44px_56px_56px_24px] md:gap-2">
+          <button
+            ref={setActivatorNodeRef}
+            type="button"
+            className="hidden h-8 w-8 items-center justify-center self-center rounded-lg border border-slate-200 bg-slate-100 text-slate-500 hover:text-slate-700 hover:border-slate-300 hover:bg-slate-200/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500 cursor-grab active:cursor-grabbing md:flex"
+            style={{ touchAction: 'none' }}
+            aria-label="Reorder item"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+
+          <div className="col-span-2 min-w-0 md:col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Item
+            </label>
+            <input
+              type="text"
+              value={item.name}
+              onChange={(e) => handleItemNameChange(index, e.target.value)}
+              placeholder="Item name"
+              onFocus={() => {
+                if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'name' };
+              }}
+              ref={(el) => {
+                if (item.__id) itemNameInputRefs.current[item.__id] = el;
+              }}
+              className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15"
+            />
+          </div>
+
+          <div className="col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Qty
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={getItemInputValue(item, 'quantity')}
+              onChange={(e) => handleItemNumericInputChange(id, 'quantity', e.target.value)}
+              onBlur={() => commitItemDraft(id)}
+              placeholder="Qty"
+              onFocus={(e) => {
+                e.target.select();
+                if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'quantity' };
+              }}
+              ref={(el) => {
+                if (item.__id) itemQtyInputRefs.current[item.__id] = el;
+              }}
+              className={[
+                'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15',
+                fieldErrors[`item-${id}-quantity`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+              ].join(' ')}
+              aria-invalid={Boolean(fieldErrors[`item-${id}-quantity`])}
+              aria-describedby={fieldErrors[`item-${id}-quantity`] ? `item-${id}-quantity-error` : undefined}
+            />
+          </div>
+
+          <div className="col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Unit
+            </label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={getItemInputValue(item, 'unit_price')}
+              onChange={(e) => handleItemNumericInputChange(id, 'unit_price', e.target.value)}
+              onBlur={() => commitItemDraft(id)}
+              placeholder="Unit"
+              onFocus={(e) => {
+                e.target.select();
+                if (item.__id) activeFieldRef.current = { type: 'item', id: item.__id, field: 'unit_price' };
+              }}
+              ref={(el) => {
+                if (item.__id) itemUnitInputRefs.current[item.__id] = el;
+              }}
+              className={[
+                'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
+                fieldErrors[`item-${id}-unit_price`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+              ].join(' ')}
+              aria-invalid={Boolean(fieldErrors[`item-${id}-unit_price`])}
+              aria-describedby={fieldErrors[`item-${id}-unit_price`] ? `item-${id}-unit_price-error` : undefined}
+            />
+          </div>
+
+          <div className="col-span-2 md:col-span-1">
+            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+              Line total
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              value={item.total_price}
+              readOnly
+              tabIndex={-1}
+              aria-readonly="true"
+              className="h-10 w-full rounded-lg border border-slate-200 bg-slate-100 px-2.5 py-2 text-right text-sm font-semibold text-slate-700 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+            />
+          </div>
+
+          <div className="hidden md:flex md:justify-end">
+            <button
+              onClick={() => handleDeleteItem(index)}
+              className="flex h-8 w-8 items-center justify-center self-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
+              type="button"
+              aria-label="Delete item"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="relative mt-1 flex items-center justify-end">
+          {isInsertMenuOpen && (
+            <div className="absolute bottom-7 right-0 z-30 w-36 rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+              <button
+                type="button"
+                className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-primary-50"
+                onClick={() => onInsert(index, 'above')}
+              >
+                Insert above
+              </button>
+              <button
+                type="button"
+                className="w-full rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-primary-50"
+                onClick={() => onInsert(index, 'below')}
+              >
+                Insert below
+              </button>
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => onToggleInsertMenu(id)}
+            className="relative z-10 flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
+            aria-label="Add item near this row"
+          >
+            <Plus className="h-3 w-3" />
+          </button>
+        </div>
       </div>
     );
   };
 
   const handleDeleteTax = (index: number) => {
     setTaxes(prev => prev.filter((_, i) => i !== index));
+    setTaxDrafts((prev) => {
+      if (!prev[index]) return prev;
+      const next: Record<number, TaxDraft> = {};
+      Object.entries(prev).forEach(([key, value]) => {
+        const idx = Number(key);
+        if (idx < index) next[idx] = value;
+        if (idx > index) next[idx - 1] = value;
+      });
+      return next;
+    });
   };
 
   const subtotal = useMemo(() => roundMoney(items.reduce((sum, item) => sum + (item.total_price || 0), 0)), [items]);
   const taxesAndChargesTotal = useMemo(() => {
-    const total = taxes.reduce((sum, tax) => {
-      const amount = Number.isFinite(tax.amount) && tax.amount !== 0
-        ? tax.amount
-        : roundMoney(((tax.percent || 0) / 100) * subtotal);
-      return sum + (amount || 0);
-    }, 0);
+    const total = taxes.reduce((sum, tax) => sum + getTaxAmount(tax, subtotal), 0);
     return roundMoney(total);
   }, [taxes, subtotal]);
   const total = useMemo(() => roundMoney(subtotal + taxesAndChargesTotal), [subtotal, taxesAndChargesTotal]);
-
-  const handleValidate = () => {
-    const editedData: ExtractedData = {
-      ...extractedData,
-      items,
-      taxes_or_charges: taxes,
-      subtotal,
-      grand_total: total,
-    };
-    onValidate(editedData);
-  };
 
   // Extract error message
   const getErrorMessage = () => {
@@ -663,20 +1175,26 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
           </div>
 
           {/* Right Panel - Editable Fields */}
-          <div ref={editorScrollRef} className="w-full md:w-1/2 min-h-0 p-4 md:p-5 overflow-y-auto bg-white flex-[3] md:flex-1">
+          <div ref={editorScrollRef} className="w-full md:w-1/2 min-h-0 overflow-y-auto bg-slate-50 p-4 md:p-5 flex-[3] md:flex-1">
             {/* Items Section */}
-            <div className="mb-7">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">Items</h3>
-                <Button size="sm" variant="outline" onClick={handleAddItem} type="button">
-                  <Plus className="h-4 w-4 mr-1" /> Add Item
-                </Button>
+            <div className="mb-7 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-slate-900 px-4 py-3 md:px-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Items</h3>
+                  </div>
+                  <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">{items.length}</span>
+                </div>
               </div>
-              <div className="hidden md:grid grid-cols-12 gap-2 px-2 py-2 mb-2 text-[10px] uppercase tracking-wide text-gray-500 bg-white border border-gray-200 rounded-md">
-                <div className="col-span-6">Item</div>
-                <div className="col-span-2 text-right">Qty</div>
-                <div className="col-span-2 text-right">Unit</div>
-                <div className="col-span-2 text-right">Total</div>
+              <div className="hidden border-b border-slate-200 bg-slate-100 px-4 py-2.5 md:block">
+                <div className="grid grid-cols-[28px_minmax(0,1fr)_44px_56px_56px_24px] items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <div className="text-center">Move</div>
+                  <div>Item</div>
+                  <div className="text-right">Qty</div>
+                  <div className="text-right">Unit</div>
+                  <div className="text-right">Total</div>
+                  <div className="text-center">X</div>
+                </div>
               </div>
               <DndContext
                 sensors={sensors}
@@ -689,19 +1207,44 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                   items={items.map((item, index) => item.__id ?? `missing-${index}`)}
                   strategy={verticalListSortingStrategy}
                 >
-                  <div className="space-y-2">
-                    {items.map((item, index) => (
-                      <SortableItemRow key={item.__id ?? index} item={item} index={index} />
-                    ))}
+                  <div className="divide-y divide-slate-200 px-3 md:px-4">
+                    {items.map((item, index) => {
+                      const rowId = item.__id ?? `missing-${index}`;
+                      return (
+                        <SortableItemRow
+                          key={rowId}
+                          item={item}
+                          index={index}
+                          isInsertMenuOpen={activeInsertTarget === rowId}
+                          onToggleInsertMenu={toggleInsertMenu}
+                          onInsert={handleInsertItem}
+                        />
+                      );
+                    })}
                   </div>
                 </SortableContext>
 
+                {items.length === 0 && (
+                  <div className="mx-3 mb-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-600 md:mx-4 md:mb-4">
+                    <p className="mb-3 text-sm font-medium text-slate-700">No items yet. Start with the first line item.</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddItemToEnd}
+                      type="button"
+                      className="rounded-full border-slate-300 px-4 text-xs text-slate-700 hover:border-primary-500 hover:text-primary-700"
+                    >
+                      <Plus className="h-4 w-4 mr-1" /> Add first item
+                    </Button>
+                  </div>
+                )}
+
                 <DragOverlay>
                   {activeDragItem ? (
-                    <div className="bg-white border border-gray-200 rounded-md p-2 shadow-xl">
+                    <div className="rounded-2xl border border-primary-200 bg-white px-4 py-3 shadow-xl">
                       <div className="flex items-center gap-2">
-                        <GripVertical className="h-4 w-4 text-gray-400" />
-                        <div className="text-sm font-medium text-gray-900 truncate max-w-[16rem]">
+                        <GripVertical className="h-4 w-4 text-primary-500" />
+                        <div className="text-sm font-medium text-slate-900 truncate max-w-[16rem]">
                           {activeDragItem.name || 'New item'}
                         </div>
                       </div>
@@ -709,59 +1252,188 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
                   ) : null}
                 </DragOverlay>
               </DndContext>
+
+              <div className="border-t border-slate-200 bg-slate-50 px-3 py-3 md:px-4">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleAddItemToEnd}
+                  type="button"
+                  className="w-full rounded-lg border-slate-300 py-2 text-sm text-slate-700 hover:border-primary-500 hover:bg-primary-50 hover:text-primary-700"
+                >
+                  <Plus className="mr-1 h-4 w-4" /> Add item to end
+                </Button>
+              </div>
             </div>
 
             {/* Taxes Section */}
-            <div className="mb-7 pb-7 border-b">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">Taxes & Charges</h3>
-                <Button size="sm" variant="outline" onClick={handleAddTax} type="button">
-                  <Plus className="h-4 w-4 mr-1" /> Add Tax/Charge
-                </Button>
-              </div>
-              <div className="space-y-2">
-                {taxes.map((tax, index) => (
-                  <div
-                    key={index}
-                    ref={(el) => { taxRowRefs.current[index] = el; }}
-                    className="flex flex-col md:flex-row gap-2 md:items-center"
-                  >
-                    <input
-                      type="text"
-                      value={tax.name}
-                      onChange={(e) => handleTaxChange(index, 'name', e.target.value)}
-                      placeholder="Tax/Charge name"
-                      ref={(el) => { taxNameInputRefs.current[index] = el; }}
-                      className="flex-1 px-2 py-1 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    />
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={tax.amount}
-                      onChange={(e) => handleTaxChange(index, 'amount', parseFloat(e.target.value) || 0)}
-                      placeholder="Amount"
-                      className="w-full md:w-28 px-2 py-1 border rounded-md text-sm text-right focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500"
-                    />
-                    <button
-                      onClick={() => handleDeleteTax(index)}
-                      className="p-1 text-red-500 hover:bg-red-50 rounded"
-                      type="button"
-                      aria-label="Delete tax or charge"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+            <div className="mb-7 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+              <div className="border-b border-slate-200 bg-slate-800 px-4 py-3 md:px-5">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">Taxes & Charges</h3>
                   </div>
-                ))}
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/80">{taxes.length}</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddTax}
+                      type="button"
+                      className="rounded-full border-white/20 bg-white/10 px-3 text-xs text-white hover:bg-white/15 hover:text-white"
+                    >
+                      <Plus className="mr-1 h-4 w-4" /> Add
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              <div className="hidden border-b border-slate-200 bg-slate-100 px-4 py-2.5 md:block">
+                <div className="grid grid-cols-[minmax(0,1fr)_72px_72px_24px] items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                  <div>Name</div>
+                  <div className="text-right">Rate</div>
+                  <div className="text-right">Amount</div>
+                  <div className="text-center">X</div>
+                </div>
+              </div>
+              <div className="divide-y divide-slate-200 px-3 md:px-4">
+                {taxes.map((tax, index) => {
+                  const calculatedAmount = getTaxAmount(tax, subtotal);
+                  const percentDisplay = getTaxInputValue(index, 'percent', tax.percent || 0);
+                  const amountDisplay = getTaxInputValue(index, 'amount', calculatedAmount);
+
+                  return (
+                    <div
+                      key={index}
+                      ref={(el) => { taxRowRefs.current[index] = el; }}
+                      className="px-0 py-2.5"
+                    >
+                      <div className="mb-2 flex items-center justify-end md:hidden">
+                        <button
+                          onClick={() => handleDeleteTax(index)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
+                          type="button"
+                          aria-label="Delete tax or charge"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1fr)_72px_72px_24px] md:items-center md:gap-2">
+                        <div className="col-span-2 min-w-0 md:col-span-1">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+                            Name
+                          </label>
+                          <input
+                            type="text"
+                            value={tax.name}
+                            onChange={(e) => handleTaxNameChange(index, e.target.value)}
+                            onFocus={() => { activeFieldRef.current = { type: 'tax', id: String(index), field: 'name' }; }}
+                            placeholder="Tax/Charge name"
+                            ref={(el) => { taxNameInputRefs.current[index] = el; }}
+                            className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 min-w-0"
+                            aria-invalid={Boolean(fieldErrors[`tax-${index}-name`])}
+                            aria-describedby={fieldErrors[`tax-${index}-name`] ? `tax-${index}-name-error` : undefined}
+                          />
+                        </div>
+                        <div className="col-span-1">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+                            Rate
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={percentDisplay}
+                              onChange={(e) => handleTaxPercentInputChange(index, e.target.value)}
+                              onBlur={() => commitTaxDraft(index, 'percent')}
+                              placeholder="%"
+                              onFocus={(e) => {
+                                e.target.select();
+                                activeFieldRef.current = { type: 'tax', id: String(index), field: 'percent' };
+                              }}
+                              ref={(el) => { taxPercentInputRefs.current[index] = el; }}
+                              className={[
+                                'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 pr-8 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
+                                fieldErrors[`tax-${index}-percent`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+                              ].join(' ')}
+                              aria-invalid={Boolean(fieldErrors[`tax-${index}-percent`])}
+                              aria-describedby={fieldErrors[`tax-${index}-percent`] ? `tax-${index}-percent-error` : undefined}
+                            />
+                            <span className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-[11px] text-slate-500">%</span>
+                          </div>
+                        </div>
+                        <div className="col-span-1">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 md:hidden">
+                            Amount
+                          </label>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={amountDisplay}
+                            onChange={(e) => handleTaxAmountInputChange(index, e.target.value)}
+                            onBlur={() => commitTaxDraft(index, 'amount')}
+                            placeholder="Amount"
+                            onFocus={(e) => {
+                              e.target.select();
+                              activeFieldRef.current = { type: 'tax', id: String(index), field: 'amount' };
+                            }}
+                            ref={(el) => { taxAmountInputRefs.current[index] = el; }}
+                            className={[
+                              'h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-right text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/15 appearance-none [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]',
+                              fieldErrors[`tax-${index}-amount`] ? 'border-red-400 focus:border-red-400 focus:ring-red-400/20' : '',
+                            ].join(' ')}
+                            aria-invalid={Boolean(fieldErrors[`tax-${index}-amount`])}
+                            aria-describedby={fieldErrors[`tax-${index}-amount`] ? `tax-${index}-amount-error` : undefined}
+                          />
+                        </div>
+                        <div className="hidden md:flex md:justify-end">
+                          <button
+                            onClick={() => handleDeleteTax(index)}
+                            className="flex h-8 w-8 items-center justify-center self-center rounded-lg border border-red-100 bg-red-50 text-red-500 hover:bg-red-100"
+                            type="button"
+                            aria-label="Delete tax or charge"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {taxes.length === 0 && (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-center text-sm text-slate-600">
+                    <p className="mb-3 text-sm font-medium text-slate-700">No tax or charge lines yet.</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleAddTax}
+                      type="button"
+                      className="rounded-full border-slate-300 px-4 text-xs text-slate-700 hover:border-primary-500 hover:text-primary-700"
+                    >
+                      <Plus className="mr-1 h-4 w-4" /> Add tax or charge
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Totals Section */}
-            <div className="space-y-3">
-              <h3 className="font-semibold text-gray-900">Totals</h3>
-              <div className="flex justify-between items-center">
-                <label className="text-sm font-medium text-gray-900">Total</label>
-                <div className="w-36 px-3 py-2 border rounded-md text-sm font-semibold text-right bg-primary-50 border-primary-200 text-primary-800">
-                  {total.toFixed(2)}
+            <div className="rounded-[24px] border border-slate-200 bg-slate-900 p-4 text-white shadow-sm md:p-5">
+              <h3 className="mb-4 text-lg font-semibold text-white">Totals</h3>
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm text-slate-300">
+                  <span>Subtotal</span>
+                  <span className="font-medium text-white">{subtotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-slate-300">
+                  <span>Taxes & charges</span>
+                  <span className="font-medium text-white">{taxesAndChargesTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-white/10 pt-3">
+                  <span className="text-sm font-semibold text-white">Grand total</span>
+                  <div className="min-w-[7rem] rounded-2xl bg-white px-4 py-2 text-right text-base font-semibold text-slate-950 shadow-inner">
+                    {total.toFixed(2)}
+                  </div>
                 </div>
               </div>
             </div>
@@ -772,10 +1444,10 @@ export const ReceiptValidationModal: React.FC<ValidationModalProps> = ({
         <div className="shrink-0 px-4 py-3 md:px-6 md:py-4 border-t flex justify-end gap-3">
           <Button className="md:hidden" size="sm" variant="outline" onClick={onClose} type="button">Cancel</Button>
           <Button className="hidden md:inline-flex" variant="outline" onClick={onClose} type="button">Cancel</Button>
-          <Button className="md:hidden" size="sm" onClick={handleValidate} type="button">
+          <Button className="md:hidden" size="sm" onClick={() => handleValidate()} type="button">
             {validationErrors ? 'Fix & Validate' : 'Confirm & Continue'}
           </Button>
-          <Button className="hidden md:inline-flex" onClick={handleValidate} type="button">
+          <Button className="hidden md:inline-flex" onClick={() => handleValidate()} type="button">
             {validationErrors ? 'Fix & Validate' : 'Confirm & Continue'}
           </Button>
         </div>

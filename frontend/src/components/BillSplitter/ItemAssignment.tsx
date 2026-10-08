@@ -111,74 +111,76 @@ export const ItemAssignment: React.FC<ItemAssignmentProps> = ({
 
   return (
     <>
-      <Card className="max-w-4xl mx-0 md:mx-auto w-full overflow-x-hidden rounded-none md:rounded-lg">
-        <CardHeader className="text-center px-4 py-4 md:px-6 md:py-6">
-          <div className="mx-auto w-12 h-12 md:w-16 md:h-16 bg-primary-100 rounded-full flex items-center justify-center mb-3 md:mb-4">
-            <ShoppingCart className="h-6 w-6 md:h-8 md:w-8 text-primary-600" />
-          </div>
-          <CardTitle className="text-lg md:text-xl">Assign Items to People</CardTitle>
-          <CardDescription className="text-sm">
-            Click on a person's name to assign each item. Click additional people to split an item.
-          </CardDescription>
-          
-          <div className="flex items-center justify-center space-x-4 mt-4">
-            <div className="flex items-center space-x-2">
-              {allAssigned ? (
-                <CheckCircle className="h-5 w-5 text-green-500" />
-              ) : (
-                <AlertCircle className="h-5 w-5 text-yellow-500" />
-              )}
-              <span className="text-xs md:text-sm font-medium">
-                {assignedCount} of {totalCount} items assigned
-              </span>
+      <div className="px-4 sm:px-5">
+        <Card padding="none" className="max-w-4xl mx-auto w-full overflow-hidden rounded-xl shadow-sm">
+          <CardHeader className="text-center px-3 py-3 md:px-5 md:py-4">
+            <div className="mx-auto w-10 h-10 md:w-12 md:h-12 bg-primary-100 rounded-full flex items-center justify-center mb-2 md:mb-3">
+              <ShoppingCart className="h-5 w-5 md:h-6 md:w-6 text-primary-600" />
             </div>
-          </div>
-        </CardHeader>
-        
-        <CardContent className="space-y-4 md:space-y-6 px-3 pb-4 md:px-6 md:pb-6 overflow-x-hidden">
-          <div className="grid gap-4">
-            {assignments.map((assignment, index) => (
-              <BillItemCard
-                key={`${assignment.item.name}-${index}`}
-                item={assignment.item}
-                index={index}
-                assignment={assignment}
-                participants={participants}
-                onUnassign={onUnassignItem}
-                onMultipleAssign={handleMultipleAssign}
-                disabled={disabled}
-              />
-            ))}
-          </div>
-
-          {!allAssigned && (
-            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <CardTitle className="text-base md:text-lg">Assign Items to People</CardTitle>
+            <CardDescription className="text-sm">
+              Click on a person's name to assign each item. Click additional people to split an item.
+            </CardDescription>
+            
+            <div className="flex items-center justify-center space-x-3 mt-3">
               <div className="flex items-center space-x-2">
-                <AlertCircle className="h-5 w-5 text-yellow-500" />
-                <p className="text-sm text-yellow-700">
-                  Please assign all items before proceeding. {totalCount - assignedCount} item(s) remaining.
-                </p>
+                {allAssigned ? (
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                ) : (
+                  <AlertCircle className="h-5 w-5 text-yellow-500" />
+                )}
+                <span className="text-xs md:text-sm font-medium">
+                  {assignedCount} of {totalCount} items assigned
+                </span>
               </div>
             </div>
-          )}
+          </CardHeader>
+          
+          <CardContent className="space-y-4 md:space-y-5 px-3 pb-4 md:px-5 md:pb-5 overflow-x-hidden">
+            <div className="grid gap-3 md:gap-4">
+              {assignments.map((assignment, index) => (
+                <BillItemCard
+                  key={`${assignment.item.name}-${index}`}
+                  item={assignment.item}
+                  index={index}
+                  assignment={assignment}
+                  participants={participants}
+                  onUnassign={onUnassignItem}
+                  onMultipleAssign={handleMultipleAssign}
+                  disabled={disabled}
+                />
+              ))}
+            </div>
 
-          <div className="flex justify-between pt-4">
-            <Button
-              variant="outline"
-              onClick={onBack}
-              disabled={disabled}
-            >
-              Back
-            </Button>
-            <Button
-              onClick={onNext}
-              disabled={!allAssigned || disabled}
-            >
-              Calculate Split
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            {!allAssigned && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2">
+                  <AlertCircle className="h-5 w-5 text-yellow-500" />
+                  <p className="text-sm text-yellow-700">
+                    Please assign all items before proceeding. {totalCount - assignedCount} item(s) remaining.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4">
+              <Button
+                variant="outline"
+                onClick={onBack}
+                disabled={disabled}
+              >
+                Back
+              </Button>
+              <Button
+                onClick={onNext}
+                disabled={!allAssigned || disabled}
+              >
+                Calculate Split
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Duplicate Assignment Confirmation Modal */}
       <ConfirmationModal

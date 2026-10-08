@@ -1,0 +1,24 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "4-piece meal bundle", "quantity": 1, "unit_price": 21.90, "total_price": 21.90},
+    {"name": "Paid add-on", "quantity": 1, "unit_price": 0.60, "total_price": 0.60}
+  ],
+  "subtotal": 22.50,
+  "taxes_or_charges": [],
+  "grand_total": 22.50,
+  "payment_method": "Unknown",
+  "currency": "SGD",
+  "_expect": {
+    "tax_scenario": "tax_exclusive",
+    "warnings": 0,
+    "items_count": 2,
+    "items_total_cents": 2250,
+    "charges_total_cents": 0,
+    "grand_total_cents": 2250,
+    "coverage": "Two adjudicated priced lines only; blank-price bundle components and extra lines are not additional items. Single-photo OCR, not PDF or multi-photo coverage."
+  }
+}

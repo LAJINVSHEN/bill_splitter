@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>even · Scanning + who's splitting</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1E44D8}a:hover{color:#1634A8}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #FFFFFF; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; color: #0B0F19">
+
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 10px 20px 0 8px">
+    <a href="#" style="height: 44px; padding: 0 12px; display: flex; align-items: center; gap: 4px; color: #0B0F19; text-decoration: none; font-size: 15px; font-weight: 600">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+      Home
+    </a>
+    <span style="font-size: 14px; font-weight: 600; color: #4A5163">Step 2 of 5</span>
+  </header>
+
+  <h1 style="margin: 8px 20px 0; font-size: 34px; line-height: 1.05; font-weight: 650; font-stretch: 122%; letter-spacing: -0.04em">Who’s splitting?</h1>
+
+  <section aria-label="Receipt scan" style="margin: 18px 20px 0; padding: 14px 0; border-top: 1.5px solid #0B0F19; border-bottom: 1px solid #E5E8EE">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <span aria-hidden="true" style="flex: none; width: 40px; height: 52px; border-radius: 4px; background: #F5F7FA; border: 1px solid #E5E8EE; box-sizing: border-box; padding: 8px 7px; display: flex; flex-direction: column; gap: 4px">
+        <span style="height: 2px; background: #C9CFDA"></span><span style="height: 2px; width: 70%; background: #C9CFDA"></span><span style="height: 2px; background: #C9CFDA"></span><span style="height: 2px; width: 55%; background: #C9CFDA"></span>
+      </span>
+      <div style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 16px; font-weight: 600">Reading your receipt</span>
+        <span style="font-size: 14px; color: #4A5163">Photo 2 of 3 · you can keep going</span>
+      </div>
+      <button type="button" style="height: 44px; padding: 0 4px; border: 0; background: transparent; font: 600 15px 'Archivo', system-ui, sans-serif; color: #1E44D8; cursor: pointer">Cancel</button>
+    </div>
+    <div role="progressbar" aria-label="Scan progress" aria-valuemin="0" aria-valuemax="4" aria-valuenow="1.5" style="margin-top: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px">
+      <span style="height: 3px; background: #1E44D8"></span>
+      <span style="height: 3px; background: linear-gradient(90deg, #1E44D8 55%, #E5E8EE 55%)"></span>
+      <span style="height: 3px; background: #E5E8EE"></span>
+      <span style="height: 3px; background: #E5E8EE"></span>
+    </div>
+    <div style="margin-top: 6px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; font-size: 13px; font-weight: 600">
+      <span style="color: #0B0F19">Upload</span><span style="color: #0B0F19">Read</span><span style="color: #4A5163">Items</span><span style="color: #4A5163">Totals</span>
+    </div>
+  </section>
+
+  <div style="margin: 18px 20px 0; display: flex; gap: 8px">
+    <label for="add" style="position: absolute; left: -9999px">Add or find someone</label>
+    <input id="add" placeholder="Add or find someone" style="flex: 1; min-width: 0; height: 48px; box-sizing: border-box; padding: 0 14px; border: 1.5px solid #0B0F19; border-radius: 6px; font: 500 16px 'Archivo', system-ui, sans-serif; color: #0B0F19">
+    <button type="button" aria-label="Add person" style="width: 48px; height: 48px; border: 0; border-radius: 6px; background: #0B0F19; color: #FFFFFF; display: grid; place-items: center; cursor: pointer">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+    </button>
+  </div>
+
+  <ul style="list-style: none; margin: 8px 20px 0; padding: 0">
+    <sc-for list="{{people}}" as="p" hint-placeholder-count="8">
+      <li style="border-bottom: 1px solid #E5E8EE">
+        <label style="min-height: 52px; display: flex; align-items: center; gap: 12px; cursor: pointer">
+          <input type="checkbox" checked="{{p.on}}" style="width: 22px; height: 22px; margin: 0; accent-color: #1E44D8">
+          <span aria-hidden="true" style="width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: {{p.bg}}">{{p.initial}}</span>
+          <span style="flex: 1; font-size: 16px; font-weight: {{p.weight}}">{{p.name}}</span>
+          <span style="font-size: 14px; color: #4A5163">{{p.note}}</span>
+        </label>
+      </li>
+    </sc-for>
+  </ul>
+
+  <footer style="position: absolute; left: 0; right: 0; bottom: 0; box-sizing: border-box; padding: 12px 20px 24px; background: #FFFFFF; border-top: 1.5px solid #0B0F19; display: flex; align-items: center; gap: 14px">
+    <span style="flex: 1; font-size: 16px; font-weight: 600"><span style="font-size: 24px; font-weight: 600; font-stretch: 120%; letter-spacing: -0.03em">5</span> people</span>
+    <button type="button" disabled style="height: 52px; padding: 0 20px; border: 0; border-radius: 6px; background: #F0F2F6; color: #4A5163; display: flex; align-items: center; gap: 10px; font: 700 16px 'Archivo', system-ui, sans-serif">
+      <span aria-hidden="true" style="display: flex; flex-direction: column; gap: 3px">
+        <span style="width: 14px; height: 3px; border-radius: 1px; background: #1E44D8"></span>
+        <span style="width: 9px; height: 3px; border-radius: 1px; background: #1E44D8; margin-left: 5px"></span>
+      </span>
+      Review items
+    </button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const p = (name, initial, bg, on, note) => ({ name, initial, bg, on, note: note || '', weight: on ? 600 : 500 });
+    return {
+      people: [
+        p('Me', 'G', '#CFE3FF', true, 'paid'),
+        p('Aina', 'A', '#FFDCC7', true),
+        p('Wei Jie', 'W', '#CDEFE0', true),
+        p('Priya', 'P', '#E3DBFF', true),
+        p('Daniel', 'D', '#F3E6C4', true),
+        p('Mei Ling', 'M', '#FAD4DE', false),
+        p('Arjun', 'A', '#D6ECF5', false),
+        p('Hafiz', 'H', '#E6E0D2', false)
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

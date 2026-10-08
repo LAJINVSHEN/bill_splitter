@@ -157,9 +157,10 @@ const App: React.FC = () => {
     }
   };
   
-  const handleValidationCorrection = async (correctedData: any) => {
+  const handleValidationCorrection = async (correctedData: any, options?: { auto?: boolean }) => {
     try {
       billSplitter.actions.setLoading(true);
+      const isAuto = options?.auto;
 
       // Save corrected data to session immediately
       console.log('[App] Saving corrected receipt data to session');
@@ -184,10 +185,12 @@ const App: React.FC = () => {
 
         // Mark as validated in global state
         validationModal.actions.markAsValidated(processResponse.processed_data);
-        validationModal.actions.closeModal();
 
-        // Always go to assignment page (step 3) after validation
-        billSplitter.actions.goToStep(3);
+        if (!isAuto) {
+          validationModal.actions.closeModal();
+          // Always go to assignment page (step 3) after validation
+          billSplitter.actions.goToStep(3);
+        }
       } else {
         // No changes made, just proceed with existing data
         const processed = receiptOCR.state.processedData ?? validationModal.state.extractedData;
@@ -201,10 +204,11 @@ const App: React.FC = () => {
 
         // Mark as validated in global state
         validationModal.actions.markAsValidated(processed);
-        validationModal.actions.closeModal();
-
-        // Always go to assignment page (step 3) after validation
-        billSplitter.actions.goToStep(3);
+        if (!isAuto) {
+          validationModal.actions.closeModal();
+          // Always go to assignment page (step 3) after validation
+          billSplitter.actions.goToStep(3);
+        }
       }
     } catch (error) {
       console.error('[App] Error validating receipt:', error);
@@ -379,14 +383,14 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col">
+    <div className="min-h-[100dvh] md:min-h-screen flex flex-col">
       <Header
         onMenuToggle={() => setIsMenuOpen(!isMenuOpen)}
         isMenuOpen={isMenuOpen}
       />
       
-      <main className="flex-1 py-8">
-        <Container className={billSplitter.state.currentStep === 3 ? 'px-0 sm:px-6 lg:px-8' : undefined}>
+      <main className="flex-1 py-6 md:py-8">
+        <Container className={billSplitter.state.currentStep === 3 ? 'px-4 sm:px-6 lg:px-8' : undefined}>
           {/* Session Error - now only for localStorage errors */}
           {session.state.error && (
             <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">

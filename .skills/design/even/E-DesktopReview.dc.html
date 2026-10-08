@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>even · Review items (desktop)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1E44D8}a:hover{color:#1634A8}
+</style>
+</helmet>
+<div style="min-height: 900px; box-sizing: border-box; background: #FFFFFF; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; color: #0B0F19; display: flex; flex-direction: column">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding: 14px clamp(16px, 3vw, 40px); border-bottom: 1px solid #E5E8EE">
+    <a href="#" style="height: 44px; display: flex; align-items: center; gap: 4px; color: #0B0F19; text-decoration: none; font-size: 15px; font-weight: 600">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>
+      Save &amp; exit
+    </a>
+    <ol aria-label="Steps" style="flex: 1; list-style: none; margin: 0; padding: 0; display: flex; justify-content: center; gap: 22px; font-size: 15px; font-weight: 600">
+      <li style="color: #4A5163">Scan</li>
+      <li style="color: #4A5163">People</li>
+      <li aria-current="step" style="color: #0B0F19; box-shadow: inset 0 -3px 0 #1E44D8; padding-bottom: 4px">Review</li>
+      <li style="color: #4A5163">Assign</li>
+      <li style="color: #4A5163">Done</li>
+    </ol>
+    <span style="font-size: 14px; font-weight: 600; color: #4A5163">Saved</span>
+  </header>
+
+  <div style="flex: 1; display: flex; flex-wrap: wrap; align-items: stretch">
+    <section aria-label="Receipt photo" style="flex: 1 1 400px; min-width: 0; box-sizing: border-box; background: #F5F7FA; padding: 24px clamp(16px, 2vw, 32px); display: flex; flex-direction: column; gap: 14px; border-right: 1px solid #E5E8EE">
+      <div style="display: flex; align-items: center; justify-content: space-between">
+        <div role="tablist" aria-label="Photos" style="display: flex; gap: 6px">
+          <button role="tab" aria-selected="true" style="height: 36px; padding: 0 12px; border-radius: 6px; border: 1.5px solid #0B0F19; background: #FFFFFF; font: 700 14px 'Archivo', system-ui, sans-serif; color: #0B0F19; cursor: pointer">Photo 1</button>
+          <button role="tab" aria-selected="false" style="height: 36px; padding: 0 12px; border-radius: 6px; border: 1px solid #D5DAE3; background: transparent; font: 600 14px 'Archivo', system-ui, sans-serif; color: #4A5163; cursor: pointer">Photo 2</button>
+        </div>
+        <div style="display: flex; gap: 6px">
+          <button aria-label="Zoom out" style="width: 36px; height: 36px; border-radius: 6px; border: 1px solid #D5DAE3; background: #FFFFFF; font: 700 18px 'Archivo', system-ui, sans-serif; color: #0B0F19; cursor: pointer">−</button>
+          <button aria-label="Zoom in" style="width: 36px; height: 36px; border-radius: 6px; border: 1px solid #D5DAE3; background: #FFFFFF; font: 700 18px 'Archivo', system-ui, sans-serif; color: #0B0F19; cursor: pointer">+</button>
+        </div>
+      </div>
+      <div role="img" aria-label="Receipt photo placeholder" style="flex: 1; min-height: 640px; border-radius: 8px; background: #FFFFFF; border: 1px dashed #B9C0CD; display: grid; place-items: center; color: #4A5163; font-size: 15px; font-weight: 600">[Receipt photo — pinch or scroll to zoom]</div>
+    </section>
+
+    <section aria-labelledby="rv-title" style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 28px clamp(16px, 3vw, 48px) 40px; display: flex; flex-direction: column; gap: 22px">
+      <div>
+        <h1 id="rv-title" style="margin: 0; font-size: 34px; line-height: 1.05; font-weight: 650; font-stretch: 122%; letter-spacing: -0.04em">Check the items</h1>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 12px">
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="m" style="font-size: 14px; font-weight: 600">Place</label>
+          <input id="m" value="Ramen Kazu" style="height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #0B0F19; border-radius: 6px; font: 500 16px 'Archivo', system-ui, sans-serif; color: #0B0F19">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="dt" style="font-size: 14px; font-weight: 600">Date</label>
+          <input id="dt" value="4 Oct 2026" style="height: 44px; box-sizing: border-box; padding: 0 12px; border: 1.5px solid #0B0F19; border-radius: 6px; font: 500 16px 'Archivo', system-ui, sans-serif; color: #0B0F19">
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <label for="cur" style="font-size: 14px; font-weight: 600">Currency</label>
+          <select id="cur" style="height: 44px; padding: 0 10px; border: 1.5px solid #0B0F19; border-radius: 6px; background: #FFFFFF; font: 600 16px 'Archivo', system-ui, sans-serif; color: #0B0F19"><option>SGD</option></select>
+        </div>
+      </div>
+
+      <p role="status" style="margin: 0; padding: 12px 14px; border-radius: 6px; background: #FFF1DB; color: #6E3500; font-size: 15px; line-height: 1.45; display: flex; gap: 10px; align-items: flex-start">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="M12 3l9.5 17h-19z"></path><path d="M12 10v4M12 17.5v.01"></path></svg>
+        <span>Items add up to <strong style="font-variant-numeric: tabular-nums">121.40</strong>, but the receipt’s subtotal is <strong style="font-variant-numeric: tabular-nums">123.40</strong>. One price is probably misread — compare with the photo.</span>
+      </p>
+
+      <div style="overflow-x: auto">
+        <table style="width: 100%; min-width: 520px; border-collapse: collapse; font-size: 16px">
+          <thead>
+            <tr style="border-top: 1.5px solid #0B0F19; border-bottom: 1px solid #E5E8EE; text-align: left; font-size: 14px; color: #4A5163">
+              <th scope="col" style="padding: 10px 0; font-weight: 600">Item</th>
+              <th scope="col" style="padding: 10px 0; font-weight: 600; width: 64px; text-align: right">Qty</th>
+              <th scope="col" style="padding: 10px 0; font-weight: 600; width: 110px; text-align: right">Each</th>
+              <th scope="col" style="padding: 10px 0; font-weight: 600; width: 110px; text-align: right">Amount</th>
+              <th scope="col" style="width: 48px"><span style="position: absolute; left: -9999px">Remove</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{items}}" as="it" hint-placeholder-count="8">
+              <tr style="border-bottom: 1px solid #E5E8EE">
+                <td style="padding: 4px 0"><input aria-label="Item name" value="{{it.name}}" style="width: 100%; height: 40px; box-sizing: border-box; border: 0; padding: 0; font: 500 16px 'Archivo', system-ui, sans-serif; color: #0B0F19; background: transparent"></td>
+                <td style="padding: 4px 0"><input aria-label="Quantity" value="{{it.qty}}" style="width: 100%; height: 40px; box-sizing: border-box; border: 0; padding: 0; text-align: right; font: 500 16px 'Archivo', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #0B0F19; background: transparent"></td>
+                <td style="padding: 4px 0"><input aria-label="Price each" value="{{it.each}}" style="width: 100%; height: 40px; box-sizing: border-box; border: 0; padding: 0; text-align: right; font: 500 16px 'Archivo', system-ui, sans-serif; font-variant-numeric: tabular-nums; color: #0B0F19; background: transparent"></td>
+                <td style="padding: 4px 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums">{{it.amount}}</td>
+                <td style="text-align: right"><button aria-label="Remove item" style="width: 40px; height: 40px; border: 0; background: transparent; color: #4A5163; cursor: pointer; font: 600 20px 'Archivo', system-ui, sans-serif">×</button></td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <button style="margin-top: 6px; height: 44px; border: 0; background: transparent; padding: 0; font: 700 15px 'Archivo', system-ui, sans-serif; color: #1E44D8; cursor: pointer">+ Add item</button>
+      </div>
+
+      <div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start">
+        <div style="flex: 1 1 260px; min-width: 0">
+          <h2 style="margin: 0 0 6px; font-size: 18px; font-weight: 700; font-stretch: 115%; letter-spacing: -0.02em">Charges</h2>
+          <ul style="list-style: none; margin: 0; padding: 0; border-top: 1.5px solid #0B0F19">
+            <li style="min-height: 46px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #E5E8EE; font-size: 16px"><span>Service charge <span style="color: #4A5163">10%</span></span><span style="font-weight: 600; font-variant-numeric: tabular-nums">12.34</span></li>
+            <li style="min-height: 46px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #E5E8EE; font-size: 16px"><span>GST <span style="color: #4A5163">9%</span></span><span style="font-weight: 600; font-variant-numeric: tabular-nums">12.22</span></li>
+          </ul>
+          <button style="margin-top: 6px; height: 44px; border: 0; background: transparent; padding: 0; font: 700 15px 'Archivo', system-ui, sans-serif; color: #1E44D8; cursor: pointer">+ Add charge or discount</button>
+        </div>
+        <dl style="flex: 0 1 300px; margin: 0; display: grid; grid-template-columns: 1fr auto; row-gap: 8px; column-gap: 24px; font-size: 16px; font-variant-numeric: tabular-nums">
+          <dt style="color: #6E3500; font-weight: 600">Items</dt><dd style="margin: 0; text-align: right; font-weight: 700; color: #9A4A00">121.40</dd>
+          <dt>Receipt subtotal</dt><dd style="margin: 0; text-align: right; font-weight: 600">123.40</dd>
+          <dt>Charges</dt><dd style="margin: 0; text-align: right; font-weight: 600">24.56</dd>
+          <dt style="padding-top: 10px; border-top: 1.5px solid #0B0F19; font-weight: 700">Total</dt>
+          <dd style="margin: 0; padding-top: 6px; border-top: 1.5px solid #0B0F19; text-align: right; font-size: 30px; font-weight: 600; font-stretch: 122%; letter-spacing: -0.03em">147.96</dd>
+        </dl>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: auto">
+        <a href="#" style="height: 52px; padding: 0 22px; border-radius: 6px; border: 1.5px solid #0B0F19; color: #0B0F19; display: flex; align-items: center; font-size: 16px; font-weight: 600; text-decoration: none">Back to people</a>
+        <a href="#" style="height: 52px; padding: 0 24px; border-radius: 6px; background: #1E44D8; color: #FFFFFF; display: flex; align-items: center; font-size: 16px; font-weight: 700; text-decoration: none">Looks right</a>
+      </div>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      items: [
+        { name: 'Tonkotsu ramen', qty: '2', each: '18.00', amount: '36.00' },
+        { name: 'Shoyu ramen', qty: '1', each: '17.50', amount: '17.50' },
+        { name: 'Gyoza, 6 pcs', qty: '1', each: '14.00', amount: '14.00' },
+        { name: 'Karaage', qty: '1', each: '14.00', amount: '14.00' },
+        { name: 'Edamame', qty: '1', each: '8.00', amount: '8.00' },
+        { name: 'Matcha latte', qty: '1', each: '12.90', amount: '12.90' },
+        { name: 'Iced lemon tea', qty: '3', each: '5.00', amount: '15.00' },
+        { name: 'Ajitama', qty: '1', each: '4.00', amount: '4.00' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

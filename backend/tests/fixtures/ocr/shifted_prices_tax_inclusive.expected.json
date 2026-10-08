@@ -1,0 +1,32 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "Item A", "quantity": 1, "unit_price": 2.90, "total_price": 2.90},
+    {"name": "Item B", "quantity": 2, "unit_price": 7.90, "total_price": 15.80},
+    {"name": "Paid add-on", "quantity": 1, "unit_price": 1.00, "total_price": 1.00},
+    {"name": "Shifted item A", "quantity": 1, "unit_price": 2.90, "total_price": 2.90},
+    {"name": "Shifted item B", "quantity": 1, "unit_price": 4.90, "total_price": 4.90},
+    {"name": "Shifted item C", "quantity": 1, "unit_price": 6.90, "total_price": 6.90},
+    {"name": "Shifted item D", "quantity": 1, "unit_price": 8.90, "total_price": 8.90},
+    {"name": "Shifted item E", "quantity": 1, "unit_price": 6.50, "total_price": 6.50}
+  ],
+  "subtotal": 0.00,
+  "taxes_or_charges": [
+    {"name": "GST 9%", "amount": 4.11}
+  ],
+  "grand_total": 49.80,
+  "payment_method": "Unknown",
+  "currency": "SGD",
+  "_expect": {
+    "tax_scenario": "tax_inclusive",
+    "warnings": 0,
+    "items_count": 8,
+    "items_total_cents": 4980,
+    "charges_total_cents": 411,
+    "grand_total_cents": 4980,
+    "coverage": "Eight adjudicated priced lines including the separate 1.00 add-on. The photo adjudication resolves the five shifted prices to 2.90, 4.90, 6.90, 8.90 and 6.50; do not follow the displaced OCR cells or create an orphan item. The printed GST is already included. Single-photo OCR, not PDF or multi-photo coverage."
+  }
+}

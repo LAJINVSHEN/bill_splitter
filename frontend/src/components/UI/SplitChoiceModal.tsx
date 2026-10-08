@@ -27,6 +27,11 @@ const fairDivideCents = (amountCents: number, people: number): number[] => {
   return shares;
 };
 
+const formatAmountInput = (value: number) => {
+  if (!Number.isFinite(value)) return '';
+  return value === 0 ? '' : String(value);
+};
+
 export const SplitChoiceModal: React.FC<SplitChoiceModalProps> = ({
   isOpen,
   onClose,
@@ -38,6 +43,7 @@ export const SplitChoiceModal: React.FC<SplitChoiceModalProps> = ({
   const [splitType, setSplitType] = useState<'equal' | 'unequal'>('equal');
   const [customSplits, setCustomSplits] = useState<ItemSplit[]>([]);
   const [error, setError] = useState<string>('');
+  const [amountDrafts, setAmountDrafts] = useState<Record<string, string>>({});
 
   const getPersonName = (personId: string) => {
     return participants.find((p) => p.id === personId)?.name || 'Unknown';
@@ -59,6 +65,12 @@ export const SplitChoiceModal: React.FC<SplitChoiceModalProps> = ({
       };
     });
     setCustomSplits(initialSplits);
+    setAmountDrafts(
+      initialSplits.reduce<Record<string, string>>((acc, split) => {
+        acc[split.personId] = formatAmountInput(split.amount);
+        return acc;
+      }, {})
+    );
   }, [isOpen, item.total_price, personIds, participants]);
 
   const customTotal = useMemo(() => {
@@ -100,6 +112,31 @@ export const SplitChoiceModal: React.FC<SplitChoiceModalProps> = ({
       return updated;
     });
     setError('');
+  };
+
+  const handleAmountChange = (personId: string, rawValue: string) => {
+    // Allow digits with optional single dot, including trailing dot while typing.
+    const validPattern = /^(\d+(\.\d*)?|\.\d*)$/;
+    if (rawValue !== '' && !validPattern.test(rawValue.trim())) {
+      return; // ignore invalid keystrokes to keep focus stable
+    }
+
+    setAmountDrafts((prev) => ({ ...prev, [personId]: rawValue }));
+
+    const parsed = rawValue.trim() === '' ? 0 : parseFloat(rawValue);
+    const safeAmount = Number.isFinite(parsed) ? parsed : 0;
+    updateSplitAmount(personId, safeAmount);
+  };
+
+  const handleAmountBlur = (personId: string) => {
+    setAmountDrafts((prev) => {
+      const current = prev[personId];
+      if (current === undefined) return prev;
+      const parsed = current.trim() === '' ? 0 : parseFloat(current);
+      const normalized = Number.isFinite(parsed) ? roundMoney(parsed) : 0;
+      updateSplitAmount(personId, normalized);
+      return { ...prev, [personId]: formatAmountInput(normalized) };
+    });
   };
 
   const handleConfirm = () => {
@@ -171,18 +208,20 @@ export const SplitChoiceModal: React.FC<SplitChoiceModalProps> = ({
             <div className="space-y-2">
               {customSplits.map((split) => (
                 <div key={split.personId} className="rounded-lg border border-gray-200 p-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium text-gray-900 truncate">{getPersonName(split.personId)}</div>
-                      <div className="text-xs text-gray-500">{split.percentage.toFixed(1)}%</div>
-                    </div>
-                  <div className="w-full sm:w-52">
-                    <Input
-                      type="number"
-                      step="0.01"
-                      inputMode="decimal"
-                      value={Number.isFinite(split.amount) ? split.amount : 0}
-                      onChange={(e) => updateSplitAmount(split.personId, parseFloat(e.target.value) || 0)}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-gray-900 truncate">{getPersonName(split.personId)}</div>
+                        <div className="text-xs text-gray-500">{split.percentage.toFixed(1)}%</div>
+                      </div>
+                    <div className="w-full sm:w-52">
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                      value={amountDrafts[split.personId] ?? formatAmountInput(split.amount)}
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => handleAmountChange(split.personId, e.target.value)}
+                      onBlur={() => handleAmountBlur(split.personId)}
                       className="text-sm"
                     />
                   </div>

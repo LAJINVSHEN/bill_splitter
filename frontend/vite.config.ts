@@ -16,9 +16,10 @@ export default defineConfig({
       '127.0.0.1',
       'ethyl-intersystem-immoderately.ngrok-free.dev',
     ],
-    port: 3000,
+    port: 5173,
     proxy: {
       '/api': {
+        // Forward API calls to the FastAPI backend (running on port 8000)
         target: 'http://localhost:8000',
         changeOrigin: true      
       }

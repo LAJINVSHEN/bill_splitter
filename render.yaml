@@ -1,0 +1,67 @@
+# Render Blueprint documenting the intended production service for even.
+#
+# IMPORTANT: the service is created by scripts/provision/render.py (API) or by hand in the dashboard,
+# NOT from this Blueprint. A dashboard/API-created service does NOT sync settings or env vars from
+# this file; change them with render.py (re-run it) or in the dashboard. If you ever switch to a
+# Blueprint-managed service instead, these are the values to keep.
+#
+# Deploys: auto-deploy is off. .github/workflows/deploy-backend-render.yml runs migrations + tests,
+# then deploys the exact commit through the Render API and waits until it's live.
+services:
+  - type: web
+    name: even-api
+    runtime: docker
+    plan: free                  # $0. Sleeps after ~15 min idle, ~1 min cold start, 750 h/month per workspace
+    region: singapore           # next to Supabase ap-southeast-1
+    repo: https://github.com/LAJINVSHEN/bill_splitter
+    branch: main
+    autoDeployTrigger: "off"    # GitHub Actions is the only deploy path (tests + CLOUD_DEPLOY_ENABLED kill switch)
+    dockerfilePath: ./backend/Dockerfile.render   # forward slashes only
+    dockerContext: ./backend
+    healthCheckPath: /api/health                  # liveness, no DB; /api/health/ready is checked by the smoke test
+    numInstances: 1             # in-process scan jobs need exactly one instance (render-start.sh runs 1 worker)
+    pullRequestPreviewsEnabled: false
+    envVars:
+      # Fixed for production
+      - key: ENVIRONMENT
+        value: production
+      - key: SUPABASE_ADMIN_BACKEND
+        value: supabase
+      - key: STORAGE_BACKEND
+        value: supabase
+      - key: OCR_BACKEND
+        value: azure
+      - key: LLM_BACKEND
+        value: openai
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      # From scripts/provision (.env.production.local) — secrets, never committed
+      - key: DATABASE_URL           # Supabase session pooler, port 5432
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_JWT_SECRET    # optional HS256 fallback; JWKS is used for asymmetric keys
+        sync: false
+      - key: AUTH_EMAIL_DOMAIN
+        sync: false
+      - key: STORAGE_BUCKET
+        sync: false
+      - key: CRON_SECRET            # same value as the GitHub Actions secret
+        sync: false
+      - key: PUBLIC_APP_URL         # https://even.pages.dev (or the assigned Pages subdomain)
+        sync: false
+      - key: CORS_ORIGINS           # the Pages origin only
+        sync: false
+      # Owner keys (root .env)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AZURE_DI_ENDPOINT
+        sync: false
+      - key: AZURE_DI_KEY
+        sync: false
+      # Optional tuning, copied by render.py when set: APP_NAME, LOG_LEVEL, APP_TIMEZONE,
+      # DEFAULT_CURRENCY, LLM_* models/efforts/timeouts/prices, OCR_*, SCAN_*, JOB_*, quotas
+      # (DEFAULT_USER_MONTHLY_QUOTA, GLOBAL_MONTHLY_PAGE_CAP, GLOBAL_MONTHLY_LLM_BUDGET_USD),
+      # RATE_LIMIT_*, MAX_JSON_BODY_BYTES, DB_POOL_SIZE, DB_MAX_OVERFLOW. Never DEV_LOGIN_PASSWORD.

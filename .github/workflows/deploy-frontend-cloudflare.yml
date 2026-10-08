@@ -1,0 +1,101 @@
+# Deploy the SPA (web/) to Cloudflare Pages project `even` by Direct Upload (Wrangler).
+# Cloudflare never builds from Git, so no Pages build minutes are used.
+# SPA routing: web/public/_redirects (`/* /index.html 200`); Pages also serves index.html for
+# unknown paths when there is no top-level 404.html. The smoke test checks a deep link.
+#
+# Kill switch: push deploys run only when the repo variable CLOUD_DEPLOY_ENABLED == 'true'.
+# Manual runs ignore it but are limited to main (the `production` environment allows main only).
+#
+# Needs repo secrets VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_AUTH_EMAIL_DOMAIN,
+# CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID; repo variables CLOUDFLARE_PROJECT_NAME, PAGES_URL.
+# VITE_AUTH_MODE is deliberately NOT set: production builds must use Supabase auth.
+name: Deploy frontend (Cloudflare Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "shared/**"
+      - ".github/workflows/deploy-frontend-cloudflare.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-pages-production
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build web/ and deploy to Pages
+    if: github.ref == 'refs/heads/main' && (vars.CLOUD_DEPLOY_ENABLED == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PAGES_URL }}
+    env:
+      VITE_API_URL: ${{ secrets.VITE_API_URL }}
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+      VITE_AUTH_EMAIL_DOMAIN: ${{ secrets.VITE_AUTH_EMAIL_DOMAIN }}
+    steps:
+      - name: Fail fast if build or deploy settings are missing
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          missing=""
+          for name in VITE_API_URL VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY VITE_AUTH_EMAIL_DOMAIN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Missing secrets:$missing (run scripts/provision/github.py)"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Unit tests
+        working-directory: web
+        run: npm test
+
+      - name: Build (production)
+        working-directory: web
+        run: npm run build
+
+      - name: Check the SPA fallback is in the build
+        run: test -f web/dist/_redirects && test -f web/dist/index.html
+
+      - name: Deploy web/dist to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: >-
+            pages deploy web/dist
+            --project-name=${{ vars.CLOUDFLARE_PROJECT_NAME || 'even-split' }}
+            --branch=main
+            --commit-hash=${{ github.sha }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Smoke test (Pages, SPA deep link, API CORS from this origin)
+        env:
+          API_BASE_URL: ${{ vars.API_BASE_URL }}
+          PAGES_URL: ${{ vars.PAGES_URL }}
+        run: python scripts/provision/smoke.py

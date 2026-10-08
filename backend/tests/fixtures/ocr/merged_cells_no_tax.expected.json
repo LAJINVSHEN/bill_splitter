@@ -1,0 +1,29 @@
+{
+  "receipt_number": "<RECEIPT>",
+  "date": "2000-01-01",
+  "time": "00:00",
+  "store": {"name": "<MERCHANT>"},
+  "items": [
+    {"name": "Item A", "quantity": 1, "unit_price": 12.80, "total_price": 12.80},
+    {"name": "Item B", "quantity": 1, "unit_price": 11.80, "total_price": 11.80},
+    {"name": "Item C", "quantity": 1, "unit_price": 15.80, "total_price": 15.80},
+    {"name": "Item D", "quantity": 1, "unit_price": 4.00, "total_price": 4.00},
+    {"name": "Item E", "quantity": 1, "unit_price": 4.50, "total_price": 4.50},
+    {"name": "Item F", "quantity": 1, "unit_price": 4.00, "total_price": 4.00},
+    {"name": "Item G", "quantity": 1, "unit_price": 2.00, "total_price": 2.00}
+  ],
+  "subtotal": 0.00,
+  "taxes_or_charges": [],
+  "grand_total": 54.90,
+  "payment_method": "Unknown",
+  "currency": "MYR",
+  "_expect": {
+    "tax_scenario": "no_taxes",
+    "warnings": 0,
+    "items_count": 7,
+    "items_total_cents": 5490,
+    "charges_total_cents": 0,
+    "grand_total_cents": 5490,
+    "coverage": "Seven adjudicated priced rows with merged quantity/amount cells. The two 4.00 rows are distinct items, each quantity 1, not a merged quantity 2 or an overcount. No printed subtotal or charges. Single-photo OCR."
+  }
+}

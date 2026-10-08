@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>C · Ledger — Home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1E44D8}a:hover{color:#1634A8}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #FFFFFF; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; color: #0B0F19">
+
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 6px">
+    <a href="#" aria-label="even, home" style="display: flex; align-items: center; gap: 6px; color: #0B0F19; text-decoration: none">
+      <span style="font-size: 26px; font-weight: 700; font-stretch: 118%; letter-spacing: -0.04em">even</span>
+      <span aria-hidden="true" style="display: flex; flex-direction: column; gap: 4px; margin-top: 4px">
+        <span style="width: 15px; height: 3.5px; border-radius: 2px; background: #1E44D8"></span>
+        <span style="width: 15px; height: 3.5px; border-radius: 2px; background: #1E44D8"></span>
+      </span>
+    </a>
+    <button aria-label="Account" style="width: 40px; height: 40px; border-radius: 999px; border: 1.5px solid #0B0F19; background: #FFFFFF; color: #0B0F19; font: 700 14px 'Archivo', system-ui, sans-serif; cursor: pointer">G</button>
+  </header>
+
+  <section aria-labelledby="c-owed" style="padding: 18px 20px 0">
+    <h2 id="c-owed" style="margin: 0; font-size: 15px; font-weight: 600; color: #4A5163">Owed to you</h2>
+    <p style="margin: 0; display: flex; align-items: flex-start; gap: 6px; font-variant-numeric: tabular-nums">
+      <span style="font-size: 20px; font-weight: 600; font-stretch: 125%; margin-top: 12px">RM</span>
+      <span style="font-size: 68px; line-height: 1.05; font-weight: 600; font-stretch: 125%; letter-spacing: -0.045em">186.40</span>
+    </p>
+    <ul style="list-style: none; margin: 10px 0 0; padding: 0; border-top: 1.5px solid #0B0F19">
+      <sc-for list="{{debtors}}" as="d" hint-placeholder-count="4">
+        <li style="display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 42px; border-bottom: 1px solid #E5E8EE">
+          <span style="font-size: 16px; font-weight: 600">{{d.name}}</span>
+          <span style="font-size: 14px; color: #4A5163; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.bill}}</span>
+          <span style="font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums">{{d.amount}}</span>
+        </li>
+      </sc-for>
+    </ul>
+  </section>
+
+  <nav aria-label="Start a bill" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 22px 20px 0">
+    <a href="#" style="grid-column: 1 / -1; height: 56px; border-radius: 6px; background: #1E44D8; color: #FFFFFF; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; font-size: 17px; font-weight: 700; font-stretch: 110%; text-decoration: none">
+      Scan a receipt
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5.5A1.5 1.5 0 0 1 5.5 4H8M16 4h2.5A1.5 1.5 0 0 1 20 5.5V8M20 16v2.5a1.5 1.5 0 0 1-1.5 1.5H16M8 20H5.5A1.5 1.5 0 0 1 4 18.5V16"></path><path d="M9 9h6M9 12h6M9 15h3.5"></path></svg>
+    </a>
+    <a href="#" style="height: 48px; border-radius: 6px; border: 1.5px solid #0B0F19; color: #0B0F19; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; text-decoration: none">Type items</a>
+    <a href="#" style="height: 48px; border-radius: 6px; border: 1.5px solid #0B0F19; color: #0B0F19; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; text-decoration: none">Split a total</a>
+  </nav>
+
+  <a href="#" style="margin: 22px 20px 0; min-height: 56px; display: flex; align-items: center; gap: 12px; border-top: 1px solid #E5E8EE; border-bottom: 1px solid #E5E8EE; text-decoration: none; color: #0B0F19">
+    <span style="flex: 1; display: flex; flex-direction: column">
+      <span style="font-size: 16px; font-weight: 600">Draft · Ramen Kazu</span>
+      <span style="font-size: 14px; font-weight: 600; color: #9A4A00">2 prices to check</span>
+    </span>
+    <span style="font-size: 15px; font-weight: 700; color: #1E44D8">Resume</span>
+  </a>
+
+  <section aria-labelledby="c-recent" style="padding: 22px 20px 0">
+    <div style="display: flex; align-items: baseline; justify-content: space-between">
+      <h2 id="c-recent" style="margin: 0; font-size: 18px; font-weight: 700; font-stretch: 115%; letter-spacing: -0.02em">Recent</h2>
+      <a href="#" style="font-size: 15px; font-weight: 600; text-decoration: none">All bills</a>
+    </div>
+    <ul style="list-style: none; margin: 8px 0 0; padding: 0; border-top: 1.5px solid #0B0F19">
+      <sc-for list="{{bills}}" as="b" hint-placeholder-count="3">
+        <li style="display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; gap: 10px; min-height: 54px; border-bottom: 1px solid #E5E8EE">
+          <span style="font-size: 14px; font-weight: 600; color: #4A5163; font-variant-numeric: tabular-nums">{{b.date}}</span>
+          <span style="font-size: 16px; font-weight: 600">{{b.merchant}}</span>
+          <span style="display: flex; align-items: center; gap: 10px">
+            <span style="font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums">{{b.total}}</span>
+            <span style="width: 54px; text-align: right; font-size: 14px; font-weight: 700; color: {{b.ink}}">{{b.status}}</span>
+          </span>
+        </li>
+      </sc-for>
+    </ul>
+  </section>
+
+  <nav aria-label="Main" style="position: absolute; left: 0; right: 0; bottom: 0; height: 72px; box-sizing: border-box; padding: 0 20px 14px; background: #FFFFFF; border-top: 1px solid #E5E8EE; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr))">
+    <a href="#" aria-current="page" style="display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; color: #0B0F19; text-decoration: none; box-shadow: inset 0 3px 0 #1E44D8">Home</a>
+    <a href="#" style="display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; color: #4A5163; text-decoration: none">Bills</a>
+    <a href="#" style="display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; color: #4A5163; text-decoration: none">People</a>
+    <a href="#" style="display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; color: #4A5163; text-decoration: none">Me</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      debtors: [
+        { name: 'Wei Jie', bill: 'Bar Lisboa, Ramen Kazu', amount: '61.10' },
+        { name: 'Aina', bill: 'Ramen Kazu', amount: '42.30' },
+        { name: 'Priya', bill: 'Bar Lisboa', amount: '41.50' },
+        { name: 'Daniel', bill: 'Bar Lisboa', amount: '41.50' }
+      ],
+      bills: [
+        { date: '04 Oct', merchant: 'Bar Lisboa', total: '312.80', status: '2 owe', ink: '#1E44D8' },
+        { date: '02 Oct', merchant: 'Kopitiam Lima', total: '48.60', status: 'Even', ink: '#4A5163' },
+        { date: '28 Sep', merchant: 'Pasar malam', total: '64.00', status: 'Even', ink: '#4A5163' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

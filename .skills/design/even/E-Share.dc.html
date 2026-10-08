@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>even · Your share</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&amp;display=swap">
+<style>
+body{margin:0}
+a{color:#1E44D8}a:hover{color:#1634A8}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; position: relative; overflow: hidden; background: #F5F7FA; font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif; color: #0B0F19; padding: 18px 16px 24px; display: flex; flex-direction: column; gap: 16px">
+
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 0 4px">
+    <span style="display: flex; align-items: center; gap: 5px">
+      <span style="font-size: 22px; font-weight: 700; font-stretch: 118%; letter-spacing: -0.04em">even</span>
+      <span aria-hidden="true" style="display: flex; flex-direction: column; gap: 3px; margin-top: 3px">
+        <span style="width: 12px; height: 3px; border-radius: 1px; background: #1E44D8"></span>
+        <span style="width: 12px; height: 3px; border-radius: 1px; background: #1E44D8"></span>
+      </span>
+    </span>
+    <span style="font-size: 14px; font-weight: 600; color: #4A5163">From George</span>
+  </header>
+
+  <main style="background: #FFFFFF; border-radius: 10px; border: 1.5px solid #0B0F19; overflow: hidden">
+    <div aria-hidden="true" style="display: flex; flex-direction: column; gap: 4px; padding: 14px 20px 0">
+      <span style="height: 4px; border-radius: 2px; background: #1E44D8"></span>
+      <span style="height: 4px; border-radius: 2px; background: #1E44D8"></span>
+    </div>
+    <div style="padding: 16px 20px 0">
+      <p style="margin: 0; font-size: 16px; font-weight: 600">Wei Jie, your share of</p>
+      <h1 style="margin: 2px 0 0; font-size: 28px; line-height: 1.1; font-weight: 650; font-stretch: 120%; letter-spacing: -0.035em">Ramen Kazu</h1>
+      <p style="margin: 4px 0 0; font-size: 15px; color: #4A5163">Sat 4 Oct · 5 people</p>
+      <p style="margin: 18px 0 0; display: flex; align-items: flex-start; gap: 6px; font-variant-numeric: tabular-nums">
+        <span style="font-size: 18px; font-weight: 600; font-stretch: 125%; margin-top: 10px">SGD</span>
+        <span style="font-size: 58px; line-height: 1.05; font-weight: 600; font-stretch: 125%; letter-spacing: -0.045em">25.75</span>
+      </p>
+      <p style="margin: 2px 0 0; font-size: 15px; color: #4A5163; font-variant-numeric: tabular-nums">¥ 2,880 at 1 JPY = 0.00894 SGD</p>
+    </div>
+
+    <ul style="list-style: none; margin: 18px 20px 0; padding: 0; border-top: 1px solid #E5E8EE">
+      <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+        <li style="min-height: 46px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #E5E8EE">
+          <span style="flex: 1; min-width: 0; font-size: 16px">{{it.name}}</span>
+          <span style="font-size: 14px; font-weight: 600; color: #4A5163">{{it.share}}</span>
+          <span style="width: 72px; text-align: right; font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums">{{it.amount}}</span>
+        </li>
+      </sc-for>
+    </ul>
+
+    <section aria-labelledby="pay" style="margin: 18px 20px 20px; padding: 14px 16px; background: #EBF0FF; border-radius: 6px; display: flex; flex-direction: column; gap: 4px">
+      <h2 id="pay" style="margin: 0; font-size: 15px; font-weight: 700; color: #1634A8">Pay George</h2>
+      <p style="margin: 0; font-size: 16px; font-weight: 600">[How George likes to be paid — from their profile]</p>
+    </section>
+  </main>
+
+  <p style="margin: 0; padding: 0 4px; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; color: #4A5163">
+    <span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 999px; background: #9A4A00"></span>
+    Not marked as paid yet
+  </p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      items: [
+        { name: 'Tonkotsu ramen', share: '½ of 2', amount: '¥ 1,450' },
+        { name: 'Highball', share: '', amount: '¥ 870' },
+        { name: 'Ajitama', share: '', amount: '¥ 400' },
+        { name: 'Edamame', share: '⅕', amount: '¥ 160' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
