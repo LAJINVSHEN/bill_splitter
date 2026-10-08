@@ -181,6 +181,7 @@ function AssignScreen({ bill }: { bill: BillOut }) {
                         {item.name}
                         {qty !== '1' && <span className="text-ink-2"> ×{qty}</span>}
                       </span>
+                      {item.details && <span className="block truncate text-[14px] text-ink-2">with {item.details}</span>}
                       {(mismatch || note) && (
                         <span className={cn('block text-[14px] font-semibold', mismatch ? 'text-warn' : 'text-ink-2')}>
                           {mismatch ? `${mismatch.ordered} ordered · ${mismatch.sharing} sharing` : note}

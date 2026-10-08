@@ -12,7 +12,7 @@ import httpx
 from app.integrations.azure_ocr import OcrError
 from app.ratelimit import limiter, reset_all
 from app.services.pipeline import recover_stale_jobs
-from tests.conftest import BAD_EXTRACTION, PDF, PNG, AppUser, Ctx, jpeg
+from tests.conftest import BAD_EXTRACTION, PDF, PNG, AppUser, Ctx, jpeg, make_extraction
 
 
 async def new_bill(ctx: Ctx, user: AppUser, title: str = "Dinner") -> str:
@@ -81,6 +81,32 @@ async def test_scan_success_applies_receipt_and_logs_usage(ctx: Ctx) -> None:
     usage = (await ctx.client.get("/api/me/usage", headers=user.headers)).json()
     assert usage["pages_used"] == 1 and usage["pages_remaining"] == 29 and usage["llm_calls"] == 1
     assert usage["scans_paused"] is False
+
+
+async def test_unpriced_component_lines_fold_into_their_item(ctx: Ctx) -> None:
+    user = await ctx.user()
+    ctx.llm.script = {"primary-mini": [make_extraction(
+        [("Chicken", 1, 0.0, 0.0), ("Bundle", 1, 21.9, 21.9), ("Mashed Potatoes", 2, 0.0, 0.0),
+         ("Upsize", 1, 0.6, 0.6), ("No Add Ons", 1, 0.0, 0.0)], subtotal=22.5, grand=22.5)]}
+    bill_id = await new_bill(ctx, user)
+    job_id = (await scan(ctx, user, bill_id, [jpeg()])).json()["job_id"]
+    await ctx.drain()
+    assert (await job(ctx, user, job_id))["status"] == "succeeded"
+    bill = (await ctx.client.get(f"/api/bills/{bill_id}", headers=user.headers)).json()
+    assert [(i["name"], i["details"], i["total_price_cents"]) for i in bill["items"]] == [
+        ("Bundle", "Chicken, Mashed Potatoes ×2", 2190), ("Upsize", "No Add Ons", 60)]
+    assert bill["validation"]["ok"] and bill["grand_total_cents"] == 2250
+
+    # A Review save that doesn't send `details` keeps them; sending null clears them.
+    items = [{k: i[k] for k in ("id", "name", "quantity", "unit_price_cents", "total_price_cents")}
+             for i in bill["items"]]
+    body = {"items": items, "charges": [], "subtotal_cents": 2250, "grand_total_cents": 2250}
+    r = await ctx.client.put(f"/api/bills/{bill_id}/receipt", headers=user.headers, json=body)
+    assert r.status_code == 200, r.text
+    assert [i["details"] for i in r.json()["items"]] == ["Chicken, Mashed Potatoes ×2", "No Add Ons"]
+    items[1]["details"] = None
+    r = await ctx.client.put(f"/api/bills/{bill_id}/receipt", headers=user.headers, json=body)
+    assert [i["details"] for i in r.json()["items"]] == ["Chicken, Mashed Potatoes ×2", None]
 
 
 async def test_validation_failure_is_needs_review_not_an_error(ctx: Ctx) -> None:

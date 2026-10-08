@@ -71,7 +71,7 @@ async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
         effective_currency=effective_currency(bill), currency_locked=currency_locked(bill),
         receipt_meta=bill.receipt_meta or {},
         created_at=bill.created_at, updated_at=bill.updated_at,
-        items=[ItemOut(id=i.id, position=i.position, name=i.name, quantity=i.quantity,
+        items=[ItemOut(id=i.id, position=i.position, name=i.name, details=i.details, quantity=i.quantity,
                        unit_price_cents=i.unit_price_cents, total_price_cents=i.total_price_cents,
                        split_mode=i.split_mode,
                        shares=[ShareOut(person_id=s.person_id, weight=s.weight, amount_cents=s.amount_cents)
@@ -239,6 +239,7 @@ async def _delete_bills(db: AsyncSession, user: CurrentUser, services: Services,
         await db.commit()
 
 
+
 def currency_locked(bill: Bill) -> bool:
     """Currency and conversion are frozen once anyone has settled (like "currency locked once
     payments exist"): settlements are recorded in the effective currency."""
@@ -322,6 +323,7 @@ class ItemSpec:
     quantity: Decimal
     unit_price_cents: int
     total_price_cents: int
+    details: str | None = None
 
 
 @dataclass(frozen=True)
@@ -348,9 +350,11 @@ async def replace_receipt(db: AsyncSession, bill: Bill, items: list[ItemSpec], c
             row = existing[spec.id]
             row.position, row.name, row.quantity = pos, spec.name, spec.quantity
             row.unit_price_cents, row.total_price_cents = spec.unit_price_cents, spec.total_price_cents
+            row.details = spec.details
         else:
             db.add(BillItem(bill_id=bill.id, position=pos, name=spec.name, quantity=spec.quantity,
-                            unit_price_cents=spec.unit_price_cents, total_price_cents=spec.total_price_cents))
+                            unit_price_cents=spec.unit_price_cents, total_price_cents=spec.total_price_cents,
+                            details=spec.details))
     await db.execute(delete(BillCharge).where(BillCharge.bill_id == bill.id)
                      .execution_options(synchronize_session=False))
     bill.subtotal_cents = subtotal_cents if subtotal_cents else None
@@ -374,9 +378,13 @@ async def put_receipt(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: 
     bill = await load_bill(db, user.id, bill_id, for_update=True)
     if bill.status == "scanning":
         raise Conflict("scan_in_progress", "Wait for the scan to finish (or cancel it) first.")
+    stored = {i.id: i.details for i in bill.items}
     await replace_receipt(
         db, bill,
-        [ItemSpec(i.id, i.name, i.quantity, i.unit_price_cents, i.total_price_cents) for i in data.items],
+        # An existing item keeps its folded details unless the client sends the field.
+        [ItemSpec(i.id, i.name, i.quantity, i.unit_price_cents, i.total_price_cents,
+                  i.details if "details" in i.model_fields_set or i.id is None else stored.get(i.id))
+         for i in data.items],
         [ChargeSpec(c.name, c.amount_cents, c.kind) for c in data.charges],
         data.subtotal_cents, data.grand_total_cents,
     )

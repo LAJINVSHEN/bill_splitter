@@ -361,7 +361,8 @@ class JobRunner:
             job.detected_currency = detected_currency(extraction, bill.currency)
             await replace_receipt(
                 db, bill,
-                [ItemSpec(None, i.name[:200], i.quantity, i.unit_price_cents, i.total_price_cents) for i in items],
+                [ItemSpec(None, i.name[:200], i.quantity, i.unit_price_cents, i.total_price_cents, i.details)
+                 for i in items],
                 [ChargeSpec(c.name[:120], c.amount_cents) for c in charges],
                 subtotal, grand,
             )

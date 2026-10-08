@@ -214,9 +214,12 @@ function Summary({ bill }: { bill: BillOut }) {
           <ul className="pb-3">
             {bill.items.map((it) => (
               <li key={it.id} className="flex min-h-10 items-center justify-between gap-3 text-[15px]">
-                <span className="min-w-0 truncate">
-                  {it.name}
-                  {trimDecimal(it.quantity) !== '1' && <span className="text-ink-2"> ×{trimDecimal(it.quantity)}</span>}
+                <span className="min-w-0">
+                  <span className="block truncate">
+                    {it.name}
+                    {trimDecimal(it.quantity) !== '1' && <span className="text-ink-2"> ×{trimDecimal(it.quantity)}</span>}
+                  </span>
+                  {it.details && <span className="block truncate text-[14px] text-ink-2">with {it.details}</span>}
                 </span>
                 <Money minor={it.total_price_cents} currency={bill.currency} />
               </li>

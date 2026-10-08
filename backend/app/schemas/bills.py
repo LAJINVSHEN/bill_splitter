@@ -59,6 +59,7 @@ class BillPatch(InputModel):
 class ItemIn(InputModel):
     id: UUID | None = None  # keep an existing item (and its assignment); omit for a new one
     name: Annotated[CleanStr, Field(min_length=1, max_length=200)]
+    details: Annotated[CleanStr, Field(max_length=500)] | None = None  # "includes …" folded component lines
     quantity: Quantity = Decimal(1)
     unit_price_cents: ItemCents
     total_price_cents: ItemCents
@@ -179,6 +180,7 @@ class ItemOut(OutputModel):
     id: UUID
     position: int
     name: str
+    details: str | None = None
     quantity: DecimalStr
     unit_price_cents: int
     total_price_cents: int

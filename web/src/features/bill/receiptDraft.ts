@@ -11,6 +11,8 @@ export interface ItemRow {
   key: string
   id?: UUID
   name: string
+  /** folded component lines, shown read-only; the server keeps them while the item exists */
+  details?: string
   qty: string
   each: string
   amount: string
@@ -52,6 +54,7 @@ export function draftFromBill(bill: BillOut): ReceiptDraft {
     key: it.id,
     id: it.id,
     name: it.name,
+    details: it.details ?? undefined,
     qty: trimDecimal(it.quantity) || '1',
     each: minorToInput(it.unit_price_cents, c),
     amount: minorToInput(it.total_price_cents, c),

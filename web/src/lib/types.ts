@@ -96,6 +96,8 @@ export interface ItemOut {
   id: UUID
   position: number
   name: string
+  /** unpriced component lines folded into this item ("Fries, Cola") — display only */
+  details?: string | null
   quantity: Dec
   unit_price_cents: Minor
   total_price_cents: Minor

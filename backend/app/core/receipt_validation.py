@@ -53,6 +53,7 @@ class ReceiptItem:
     quantity: Decimal
     unit_price_cents: int
     total_price_cents: int
+    details: str | None = None  # unpriced component lines folded into this item (display only)
 
 
 @dataclass(frozen=True)

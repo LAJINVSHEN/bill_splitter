@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.core.currencies import normalize_code
+from app.core.item_folding import fold_unpriced_items
 from app.core.money import to_cents
 from app.core.receipt_validation import ReceiptCharge, ReceiptItem, ValidationResult, validate_receipt
 from app.integrations.llm import LlmCall, LlmClient
@@ -20,11 +21,14 @@ from app.schemas.extraction import ReceiptExtraction
 
 def extraction_to_core(x: ReceiptExtraction, exponent: int = 2
                        ) -> tuple[list[ReceiptItem], list[ReceiptCharge], int, int | None]:
-    """Major-unit floats from the model → minor units of the BILL's currency (``exponent``)."""
+    """Major-unit floats from the model → minor units of the BILL's currency (``exponent``).
+
+    Unpriced component/modifier lines are folded into their priced item (see ``core.item_folding``)."""
     items = [ReceiptItem(name=i.name.strip() or "Item", quantity=Decimal(i.quantity if i.quantity > 0 else 1),
                          unit_price_cents=to_cents(i.unit_price, exponent),
                          total_price_cents=to_cents(i.total_price, exponent))
              for i in x.items]
+    items = fold_unpriced_items(items)
     charges = [ReceiptCharge(name=c.name.strip() or "Charge", amount_cents=to_cents(c.amount, exponent))
                for c in x.taxes_or_charges]
     subtotal = to_cents(x.subtotal, exponent) if x.subtotal else None

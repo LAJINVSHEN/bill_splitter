@@ -91,6 +91,7 @@ class BillItem(Base):
     )
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    details: Mapped[str | None] = mapped_column(Text)  # unpriced component lines folded into this item
     quantity: Mapped[Decimal] = mapped_column(Numeric(12, 3), nullable=False, server_default="1")
     unit_price_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
     total_price_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -104,6 +105,7 @@ class BillItem(Base):
     __table_args__ = (
         CheckConstraint("split_mode IS NULL OR split_mode IN ('single', 'equal', 'weighted', 'custom')",
                         name="split_mode"),
+        CheckConstraint("details IS NULL OR char_length(details) <= 500", name="details_len"),
         Index("ix_bill_items_bill_id", "bill_id"),
     )
 

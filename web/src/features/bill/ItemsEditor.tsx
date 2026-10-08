@@ -149,6 +149,7 @@ export function ItemsTable({
                   />
                 </div>
               </div>
+              {r.details && <p className="px-1.5 pb-1 text-[14px] text-ink-2">with {r.details}</p>}
               {warn && (
                 <p className="px-1.5 pb-1 text-[14px] font-semibold text-warn-ink">
                   Qty × each comes to <Money minor={warn.expected_cents} currency={currency} />
