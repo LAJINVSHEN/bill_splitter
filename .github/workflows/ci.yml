@@ -67,7 +67,7 @@ jobs:
         run: docker build -f backend/Dockerfile.render -t bill-splitter-api:ci backend
 
   frontend:
-    name: Frontend · typecheck, build, unit tests
+    name: Frontend · typecheck, lint, build, unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -87,6 +87,9 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build
         # No VITE_* here: the bundle only refuses to *run* in production without Supabase vars.
@@ -111,6 +114,10 @@ jobs:
             echo "SUPABASE_JWT_SECRET=$(openssl rand -hex 32)"
             echo "DEV_LOGIN_PASSWORD=$(openssl rand -hex 16)"
             echo "CORS_ORIGINS=http://localhost:5173"
+            # Every spec signs in as the same seeded users, so the whole suite shares one
+            # per-user bucket; 300/min (production) 429s the later specs. Limiting stays on
+            # (scan/public/admin limits unchanged); the default limit's 429 is covered by pytest.
+            echo "RATE_LIMIT_DEFAULT=6000/minute"
           } > .env
 
       - name: Start Postgres 16 + API (dev auth routes enabled)
