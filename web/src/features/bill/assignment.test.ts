@@ -157,8 +157,9 @@ describe('split dialog', () => {
       { split_mode: 'weighted', total_price_cents: 1400, shares: [{ person_id: 'a', weight: '2', amount_cents: null }, { person_id: 'b', weight: '1', amount_cents: null }] },
       all,
     )
-    expect(shares.mode).toBe('shares')
-    expect(shares.shares).toEqual({ a: 2, b: 1, c: 0 })
+    // older "shares" (2 : 1) open as the same split in percent
+    expect(shares.mode).toBe('percent')
+    expect(shares.percent).toEqual({ a: '66.67', b: '33.33', c: '' })
   })
 
   it('switching modes keeps who is in and seeds sensible values', () => {
@@ -173,8 +174,10 @@ describe('split dialog', () => {
   it('turns each mode into the right assignment', () => {
     const s = initialDialog(item(null, []), all)
     expect(ids((dialogToAssign({ ...s, included: ['b'] }, 1400, all) as { ok: true; assign: Assign }).assign)).toEqual({ mode: 'single', who: ['b'] })
-    const shares = dialogToAssign({ ...s, mode: 'shares', shares: { a: 2, b: 0, c: 1 } }, 1400, all)
-    expect(shares).toEqual({ ok: true, assign: { mode: 'weighted', shares: [{ person_id: 'a', weight: '2' }, { person_id: 'c', weight: '1' }] } })
+    expect(dialogToAssign({ ...s, mode: 'percent', percent: { a: '75', b: '', c: '25' } }, 1400, all)).toEqual({
+      ok: true,
+      assign: { mode: 'weighted', shares: [{ person_id: 'a', weight: '75' }, { person_id: 'c', weight: '25' }] },
+    })
     expect(dialogToAssign({ ...s, mode: 'percent', percent: { a: '60', b: '30', c: '' } }, 1400, all)).toEqual({ ok: false, reason: '10% left to give' })
     expect(dialogToAssign({ ...s, mode: 'exact', exact: { a: 400, b: 900, c: 0 } }, 1400, all)).toEqual({ ok: false, reason: 'difference' })
     expect(dialogToAssign({ ...s, mode: 'exact', exact: { a: 400, b: 1000, c: 0 } }, 1400, all)).toEqual({

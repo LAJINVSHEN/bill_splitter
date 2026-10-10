@@ -9,7 +9,8 @@ from app.database import get_db
 from app.middleware.auth import CurrentUserDep, PendingUserDep
 from app.core.currencies import normalize_code
 from app.errors import BadRequest
-from app.schemas.me import FxRateIn, FxRateList, FxRateOut, MeOut, MePatch, SummaryOut, UsageOut
+from app.schemas.me import FxRateIn, FxRateList, FxRateOut, InboxOut, MeOut, MePatch, SummaryOut, UsageOut
+from app.services import claims as claims_svc
 from app.services import fx
 from app.services import me as svc
 from app.services.container import ServicesDep
@@ -34,6 +35,12 @@ async def patch_me(data: MePatch, user: CurrentUserDep, db: DB) -> MeOut:
 async def password_changed(user: PendingUserDep, db: DB) -> MeOut:
     """Call after ``supabase.auth.updateUser({ password })`` succeeds."""
     return await svc.password_changed(db, user)
+
+
+@router.get("/claims", response_model=InboxOut)
+async def my_claims(user: CurrentUserDep, db: DB) -> InboxOut:
+    """Friends' "I've paid" waiting for a Confirm, newest first, across all bills."""
+    return await claims_svc.inbox(db, user)
 
 
 @router.get("/usage", response_model=UsageOut)

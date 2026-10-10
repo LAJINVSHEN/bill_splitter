@@ -5,22 +5,18 @@ import { useFileUrl } from '@/data/queries'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import type { BillOut } from '@/lib/types'
-
-const ZOOMS = [1, 1.5, 2, 3]
+import { ZoomImage } from './ZoomImage'
 
 /** The receipt beside the numbers: a tab per page, zoom, signed URLs that refresh themselves. */
 export function PhotoViewer({ bill, className, hideLabel }: { bill: Pick<BillOut, 'id' | 'files'>; className?: string; hideLabel?: boolean }) {
   const files = [...bill.files].sort((a, b) => a.position - b.position)
   const [index, setIndex] = useState(0)
-  const [zoom, setZoom] = useState(0)
   const file = files[Math.min(index, files.length - 1)]
   const url = useFileUrl(bill.id, file?.id, Boolean(file?.available))
   const isPdf = file?.mime === 'application/pdf'
   const expired = file && (!file.available || (url.error instanceof ApiError && url.error.code === 'file_expired'))
 
   if (!file) return null
-  const zbtn =
-    'grid h-11 w-11 place-items-center rounded-[var(--radius-control)] border border-rule-2 bg-paper text-[20px] font-bold leading-none text-ink hover:bg-mist disabled:text-ink-2'
 
   return (
     <div className={cn('flex min-h-0 flex-col gap-3', className)}>
@@ -33,10 +29,7 @@ export function PhotoViewer({ bill, className, hideLabel }: { bill: Pick<BillOut
                 type="button"
                 role="tab"
                 aria-selected={i === index}
-                onClick={() => {
-                  setIndex(i)
-                  setZoom(0)
-                }}
+                onClick={() => setIndex(i)}
                 className={cn(
                   'h-11 shrink-0 rounded-[var(--radius-control)] px-3 text-[14px]',
                   i === index ? 'border-[1.5px] border-ink bg-paper font-bold text-ink' : 'border border-rule-2 font-semibold text-ink-2 hover:text-ink',
@@ -49,19 +42,9 @@ export function PhotoViewer({ bill, className, hideLabel }: { bill: Pick<BillOut
         ) : (
           <span className={cn('text-[15px] font-semibold', hideLabel && 'sr-only')}>{isPdf ? 'Receipt PDF' : 'Receipt photo'}</span>
         )}
-        {!isPdf && !expired && (
-          <div className="flex shrink-0 gap-1.5">
-            <button type="button" aria-label="Zoom out" className={zbtn} disabled={zoom === 0} onClick={() => setZoom((z) => Math.max(0, z - 1))}>
-              −
-            </button>
-            <button type="button" aria-label="Zoom in" className={zbtn} disabled={zoom === ZOOMS.length - 1} onClick={() => setZoom((z) => Math.min(ZOOMS.length - 1, z + 1))}>
-              +
-            </button>
-          </div>
-        )}
       </div>
 
-      <div role={files.length > 1 ? 'tabpanel' : undefined} className="relative min-h-[320px] flex-1 overflow-auto rounded-[8px] border border-rule bg-paper">
+      <div role={files.length > 1 ? 'tabpanel' : undefined} className={cn('relative min-h-[320px] flex-1 rounded-[8px] border border-rule bg-paper', isPdf ? 'overflow-auto' : 'overflow-hidden')}>
         {expired ? (
           <div className="grid h-full min-h-[320px] place-items-center p-6 text-center">
             <p className="flex max-w-[30ch] flex-col items-center gap-2 text-[15px] font-semibold text-ink-2">
@@ -89,13 +72,7 @@ export function PhotoViewer({ bill, className, hideLabel }: { bill: Pick<BillOut
             </a>
           </div>
         ) : (
-          <img
-            src={url.data.url}
-            alt={`Receipt, page ${index + 1}`}
-            className="block h-auto max-w-none"
-            style={{ width: `${ZOOMS[zoom]! * 100}%` }}
-            onError={() => void url.refetch()}
-          />
+          <ZoomImage key={file.id} src={url.data.url} alt={`Receipt, page ${index + 1}`} onError={() => void url.refetch()} className="absolute inset-0" />
         )}
       </div>
     </div>

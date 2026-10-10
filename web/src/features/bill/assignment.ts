@@ -116,14 +116,12 @@ export function quantityMismatch(item: Pick<ItemOut, 'quantity' | 'shares'>): { 
 
 // ---- split dialog --------------------------------------------------------------------------------
 
-export type DialogMode = 'equal' | 'shares' | 'percent' | 'exact'
+export type DialogMode = 'equal' | 'exact' | 'percent'
 
 export interface DialogState {
   mode: DialogMode
   /** equal: who's in */
   included: UUID[]
-  /** by shares: whole-number shares per person (0 = out) */
-  shares: Record<UUID, number>
   /** percentages as typed */
   percent: Record<UUID, string>
   /** exact amounts in minor units */
@@ -175,7 +173,6 @@ export function initialDialog(item: Pick<ItemOut, 'split_mode' | 'shares' | 'tot
   const base: DialogState = {
     mode: 'equal',
     included,
-    shares: Object.fromEntries(participantIds.map((id) => [id, included.includes(id) ? 1 : 0])),
     percent: seedPercent(included, participantIds),
     exact: seedExact(item.total_price_cents, included, participantIds),
   }
@@ -184,16 +181,15 @@ export function initialDialog(item: Pick<ItemOut, 'split_mode' | 'shares' | 'tot
     return { ...base, mode: 'exact', exact: Object.fromEntries(participantIds.map((id) => [id, item.shares.find((s) => s.person_id === id)?.amount_cents ?? 0])) }
   }
   if (item.split_mode === 'weighted') {
+    // Percentages are stored as weights that make 100. Older "shares" (2 : 1) open as the same
+    // split in percent (66.67 / 33.33), so nothing changes until someone edits it.
     const weights = item.shares.map((s) => s.weight ?? '0')
     const sum = weights.reduce((acc, w) => acc + weightHundredths(w), 0)
-    const wholeShares = weights.every((w) => /^\d+(\.0+)?$/.test(w))
-    if (sum === HUNDREDTHS && !(wholeShares && weights.length > 0 && weights.every((w) => parseFloat(w) <= 20))) {
-      return { ...base, mode: 'percent', percent: Object.fromEntries(participantIds.map((id) => [id, trimZeros(item.shares.find((s) => s.person_id === id)?.weight ?? '')])) }
-    }
-    if (wholeShares) {
-      return { ...base, mode: 'shares', shares: Object.fromEntries(participantIds.map((id) => [id, Math.round(parseFloat(item.shares.find((s) => s.person_id === id)?.weight ?? '0'))])) }
-    }
-    return { ...base, mode: 'percent', percent: seedPercent(ids, participantIds) }
+    const pct =
+      sum === HUNDREDTHS
+        ? weights.map(trimZeros)
+        : allocate(HUNDREDTHS, weights.map((w) => Math.max(0, Math.round(parseFloat(w) * 10000)))).map(formatHundredths)
+    return { ...base, mode: 'percent', percent: Object.fromEntries(participantIds.map((id) => [id, pct[ids.indexOf(id)] ?? ''])) }
   }
   return base
 }
@@ -228,7 +224,6 @@ export function switchMode(state: DialogState, mode: DialogMode, total: number, 
     ...state,
     mode,
     included,
-    shares: mode === 'shares' && state.mode !== 'shares' ? Object.fromEntries(all.map((id) => [id, included.includes(id) ? 1 : 0])) : state.shares,
     percent: mode === 'percent' && state.mode !== 'percent' ? seedPercent(included, all) : state.percent,
     exact: mode === 'exact' && state.mode !== 'exact' ? seedExact(total, included, all) : state.exact,
   }
@@ -239,8 +234,6 @@ export function dialogIncluded(state: DialogState, all: UUID[]): UUID[] {
   switch (state.mode) {
     case 'equal':
       return all.filter((id) => state.included.includes(id))
-    case 'shares':
-      return all.filter((id) => (state.shares[id] ?? 0) > 0)
     case 'percent':
       return all.filter((id) => (percentToHundredths(state.percent[id] ?? '') ?? 0) > 0)
     case 'exact':
@@ -256,9 +249,6 @@ export function dialogToAssign(state: DialogState, total: number, all: UUID[]): 
   switch (state.mode) {
     case 'equal':
       return ids.length ? { ok: true, assign: equal(ids) } : { ok: false, reason: 'Pick at least one person.' }
-    case 'shares':
-      if (!ids.length) return { ok: false, reason: 'Give someone at least one share.' }
-      return { ok: true, assign: { mode: 'weighted', shares: ids.map((id) => ({ person_id: id, weight: String(state.shares[id]) })) } }
     case 'percent': {
       const left = percentLeft(all.map((id) => state.percent[id] ?? ''))
       if (left === null) return { ok: false, reason: 'Use numbers with up to 2 decimals.' }

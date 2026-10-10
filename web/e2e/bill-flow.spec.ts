@@ -97,7 +97,7 @@ async function pickFriend(page: Page, friend: PersonOut) {
 
 async function manual(page: Page, name: string, create: (action: () => Promise<unknown>) => Promise<BillOut>) {
   await page.goto('/bills/new?mode=manual')
-  await page.getByRole('textbox', { name: 'Where was it?', exact: true }).fill(name)
+  await page.getByRole('textbox', { name: 'What was it?', exact: true }).fill(name)
   await page.getByRole('combobox', { name: 'Currency', exact: true }).selectOption('SGD')
   const bill = await create(() => page.getByRole('button', { name: /^Next: who/ }).click())
   await expect(page).toHaveURL(new RegExp(`/bills/${bill.id}/people$`))
@@ -187,14 +187,15 @@ test('quick weighted split: partial payment agrees across Home/Bills, settle and
     await page.getByRole('textbox', { name: 'Total', exact: true }).fill('30.00')
     await page.getByRole('textbox', { name: 'What was it?', exact: true }).fill(name)
     await pickFriend(page, friend)
-    await page.getByRole('radio', { name: 'By shares', exact: true }).click()
-    await page.getByRole('button', { name: `More shares for ${friend.name}`, exact: true }).click()
+    await page.getByRole('radio', { name: 'Percent', exact: true }).click()
+    await page.getByRole('textbox', { name: 'Percent for me', exact: true }).fill('33.33')
+    await page.getByRole('textbox', { name: `Percent for ${friend.name}`, exact: true }).fill('66.67')
     const created = await create(() => page.getByRole('button', { name: 'Split it', exact: true }).click())
     const id = created.id
     await expect(page.getByRole('heading', { name, exact: true })).toBeVisible()
     const weighted = await get<BillOut>(page, `/bills/${id}`)
     expect(weighted.items[0].split_mode).toBe('weighted')
-    expect(weighted.items[0].shares.map((share) => [share.person_id, Number(share.weight)])).toEqual([[me.self_person_id, 1], [friend.id, 2]])
+    expect(weighted.items[0].shares.map((share) => [share.person_id, Number(share.weight)])).toEqual([[me.self_person_id, 33.33], [friend.id, 66.67]])
     expect(weighted.split.people.find((person) => person.person_id === friend.id)?.total_cents).toBe(2000)
     await personRow(page, friend).getByRole('button', { name: friend.name, exact: true }).click()
     const dialog = page.getByRole('dialog').filter({ has: page.getByRole('heading', { name: friend.name, exact: true }) })
@@ -216,7 +217,7 @@ test('quick weighted split: partial payment agrees across Home/Bills, settle and
     expect(open.items.find((bill) => bill.id === id)?.unsettled_count).toBe(1)
     await billRow(page, info, id, 'Bills').getByRole('link').click()
     await savedAction(page, `/bills/${id}/participants/${friend.id}/settlement`, 'POST', () => personRow(page, friend).getByRole('button', { name: 'Mark paid', exact: true }).click())
-    await expect(page.getByRole('heading', { name: /Everyone.s even/ })).toBeVisible()
+    await expect(personRow(page, friend).getByText('Even', { exact: true })).toBeVisible()
     await home(page)
     await expect(billRow(page, info, id, 'Recent bills')).toContainText('Even')
     expect((await get<SummaryOut>(page, '/me/summary')).bills.some((bill) => bill.bill_id === id)).toBe(false)
@@ -235,7 +236,7 @@ test('quick weighted split: partial payment agrees across Home/Bills, settle and
 })
 
 for (const editor of ['receipt', 'participants'] as const) {
-  test(`Save & exit: ${editor} pending PUT fails twice, retains draft, Retry exit saves`, async ({ page, temporaryBills }, info) => {
+  test(`Save & exit: ${editor} pending PUT fails twice, retains draft, Try again saves`, async ({ page, temporaryBills }, info) => {
     await withBills(page, info, temporaryBills, async ({ name, friend, me, create }) => {
       const id = await manual(page, name, create)
       if (editor === 'receipt') {
@@ -270,7 +271,7 @@ for (const editor of ['receipt', 'participants'] as const) {
         release()
         await failed
         await expect(page.getByText('AUDIT E2E save failed. Retry.', { exact: true })).toBeVisible()
-        await expect(page.getByRole('button', { name: 'Retry exit', exact: true })).toBeEnabled()
+        await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled()
         await expect(page).toHaveURL(new RegExp(`${editorPath}$`))
         const retained = async () => {
           if (editor === 'receipt') {
@@ -283,16 +284,16 @@ for (const editor of ['receipt', 'participants'] as const) {
         }
         await retained()
         const secondFailure = responseFor(page, path, 'PUT', 503)
-        await page.getByRole('button', { name: 'Retry exit', exact: true }).click()
+        await page.getByRole('button', { name: 'Try again', exact: true }).click()
         await secondFailure
-        await expect(page.getByRole('button', { name: 'Retry exit', exact: true })).toBeEnabled()
+        await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeEnabled()
         await expect(page.getByText('AUDIT E2E save failed. Retry.', { exact: true })).toBeVisible()
         await expect(page).toHaveURL(new RegExp(`${editorPath}$`))
         await retained()
         expect(attempts).toBe(2)
         expect(await get<BillOut>(page, `/bills/${id}`)).toEqual(before)
         fail = false
-        const saved = await savedAction(page, path, 'PUT', () => page.getByRole('button', { name: 'Retry exit', exact: true }).click())
+        const saved = await savedAction(page, path, 'PUT', () => page.getByRole('button', { name: 'Try again', exact: true }).click())
         await expect(page).toHaveURL(/\/$/)
         expect(saved.participants.map((person) => person.person_id)).toEqual([me.self_person_id, friend.id])
         const persisted = await get<BillOut>(page, `/bills/${id}`)

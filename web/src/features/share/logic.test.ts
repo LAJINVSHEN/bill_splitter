@@ -3,8 +3,12 @@ import type { PublicPerson } from '@/lib/types'
 import { billFractions, effectiveTotal, firstName, fractionLabel, isConverted } from './logic'
 
 const person = (name: string, items: Array<[string, number]>, extra: Partial<PublicPerson> = {}): PublicPerson => ({
+  key: name,
   name,
+  color_seed: 0,
   is_payer: false,
+  effective_total_cents: 100,
+  claim: null,
   items: items.map(([n, c]) => ({ name: n, share_cents: c })),
   items_cents: 0,
   adjustment_cents: 0,

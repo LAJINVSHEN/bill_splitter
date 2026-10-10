@@ -2,7 +2,6 @@ import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { Button } from '@/components/Button'
 import { Meter, PageTitle, SectionTitle } from '@/components/Display'
-import { controlClass } from '@/components/Field'
 import { useToast } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
 import { useFxRates, useMe, useUpdateMe, useUsage } from '@/data/queries'
@@ -116,19 +115,24 @@ export default function AccountPage() {
 
           <Section id="money-title" title="Money">
             <Row label="Home currency" htmlFor="home-currency">
-              <select
-                id="home-currency"
-                value={home}
-                disabled={update.isPending}
-                onChange={(e) => void setCurrency(e.target.value)}
-                className={cn(controlClass, 'h-11 w-auto min-w-0 max-w-[58%] truncate px-2.5 text-[15px] font-semibold md:max-w-[320px]')}
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.code} — {c.name}
-                  </option>
-                ))}
-              </select>
+              {/* Shows just the code; the open list has full names. A native select under a label-sized face. */}
+              <span className="relative inline-flex h-11 shrink-0 items-center gap-1.5 rounded-[var(--radius-control)] border-[1.5px] border-ink px-3 text-[15px] font-semibold focus-within:border-cobalt focus-within:ring-2 focus-within:ring-cobalt-soft">
+                <span aria-hidden="true" className="num">{home}</span>
+                <Icon name="next" size={16} className="rotate-90 text-ink-2" />
+                <select
+                  id="home-currency"
+                  value={home}
+                  disabled={update.isPending}
+                  onChange={(e) => void setCurrency(e.target.value)}
+                  className="absolute inset-0 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-default"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.code} — {c.name}
+                    </option>
+                  ))}
+                </select>
+              </span>
             </Row>
             {hasNote && (
               <Row label="How friends pay you">

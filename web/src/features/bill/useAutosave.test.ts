@@ -150,9 +150,19 @@ describe('FlowShell safe exit', () => {
     expect(router.state.location.pathname).toBe('/edit')
     expect(screen.getAllByText(/Not saved/)).toHaveLength(2)
     expect(screen.queryByText('Saved')).not.toBeInTheDocument()
-    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Retry exit' })))
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Try again' })))
     expect(save).toHaveBeenCalledTimes(2)
     expect(save).toHaveBeenLastCalledWith('draft')
+    expect(router.state.location.pathname).toBe('/')
+  })
+
+  it('lets the person leave without saving once a save keeps failing', async () => {
+    const save = vi.fn().mockRejectedValue(new Error('offline'))
+    const { router } = renderEditor(save)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Save & exit' })))
+    expect(router.state.location.pathname).toBe('/edit')
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Leave without saving' })))
     expect(router.state.location.pathname).toBe('/')
   })
 
@@ -166,7 +176,7 @@ describe('FlowShell safe exit', () => {
     await act(async () => { await router.navigate(-1) })
     expect(save).toHaveBeenCalledWith('draft')
     expect(router.state.location.pathname).toBe('/edit')
-    expect(screen.getByRole('button', { name: 'Retry exit' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 
   it.each([false, true])('waits for other pending bill saves and handles failure=%s', async (fails) => {
@@ -188,7 +198,7 @@ describe('FlowShell safe exit', () => {
     expect(router.state.location.pathname).toBe('/edit')
     await act(async () => { finish(); await completed })
     expect(router.state.location.pathname).toBe(fails ? '/edit' : '/')
-    if (fails) expect(screen.getByRole('button', { name: 'Retry exit' })).toBeInTheDocument()
+    if (fails) expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 })
 
@@ -209,7 +219,7 @@ describe('QuickForm safe exit', () => {
     expect(screen.getAllByText(/Unsaved changes/)).toHaveLength(2)
     await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Exit' })))
     expect(router.state.location.pathname).toBe('/edit')
-    expect(screen.getByText('Use Split it to save your changes.')).toBeInTheDocument()
+    expect(screen.getByText('This split isn’t saved yet. Tap Split it to keep it.')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'What was it?' })).toHaveValue('Lunch')
     await act(async () => { await router.navigate(-1) })
     expect(router.state.location.pathname).toBe('/edit')

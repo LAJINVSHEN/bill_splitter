@@ -204,14 +204,18 @@ export function draftToReceipt(d: ReceiptDraft, currency: string): DraftPayload 
 
 /**
  * Merge a save response into the draft without touching what the person is typing:
- * new item ids by sent position, and server-derived percentages for charges nobody typed a % into.
+ * item ids by sent position, and server-derived percentages for charges nobody typed a % into.
+ * The response is the truth for ids: every sent row takes the server's id (it may have been
+ * re-created), and a row that had an id but wasn't sent (its name was blank) was deleted, so it
+ * loses the id. Keeping a stale id makes the next save fail with "unknown_item".
  */
 export function mergeSaved(d: ReceiptDraft, sent: DraftPayload, bill: Pick<BillOut, 'items' | 'charges'>): ReceiptDraft {
   const idByKey = new Map(sent.itemKeys.map((k, i) => [k, bill.items[i]?.id]))
   const pctByKey = new Map(sent.chargeKeys.map((k, i) => [k, bill.charges[i]?.percent ?? null]))
+  const idOf = (r: ItemRow) => (idByKey.has(r.key) ? idByKey.get(r.key) : undefined)
   return {
     ...d,
-    items: d.items.map((r) => (!r.id && idByKey.get(r.key) ? { ...r, id: idByKey.get(r.key) } : r)),
+    items: d.items.map((r) => (idOf(r) === r.id ? r : { ...r, id: idOf(r) })),
     charges: d.charges.map((ch) => (!ch.percentTyped && pctByKey.has(ch.key) ? { ...ch, percent: trimDecimal(pctByKey.get(ch.key)) } : ch)),
   }
 }

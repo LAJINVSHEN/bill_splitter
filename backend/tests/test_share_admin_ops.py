@@ -549,7 +549,7 @@ async def test_every_public_table_has_rls_and_no_api_role_grants(ctx: Ctx) -> No
                has_table_privilege('anon', c.oid, 'SELECT'), has_table_privilege('authenticated', c.oid, 'INSERT')
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind = 'r' ORDER BY 1""")
-    assert len(rows) == 15
+    assert len(rows) == 16  # + payment_claims (0007)
     assert all(rls for _, rls, _, _ in rows), rows
     assert not any(anon or auth for _, _, anon, auth in rows), rows
     policies = await ctx.sql("SELECT count(*) FROM pg_policies WHERE schemaname = 'public'")

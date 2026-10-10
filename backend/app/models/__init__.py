@@ -3,7 +3,7 @@
 from app.models.base import Base
 from app.models.bill import Bill, BillCharge, BillItem, BillParticipant, ItemShare
 from app.models.profile import AppSettings, FxRate, Person, Profile
-from app.models.scan import ExtractionJob, OcrCache, ReceiptFile, ShareLink, UsageEvent
+from app.models.scan import ExtractionJob, OcrCache, PaymentClaim, ReceiptFile, ShareLink, UsageEvent
 
 __all__ = [
     "AppSettings",
@@ -19,6 +19,7 @@ __all__ = [
     "Person",
     "Profile",
     "ReceiptFile",
+    "PaymentClaim",
     "ShareLink",
     "UsageEvent",
 ]

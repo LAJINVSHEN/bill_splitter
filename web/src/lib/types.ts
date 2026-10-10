@@ -26,6 +26,8 @@ export interface MeOut {
   payment_note?: string | null
   self_person_id: UUID
   created_at: string
+  /** friends' "I've paid" waiting for a Confirm (optional until every API has it) */
+  open_claims_count?: number
 }
 
 export interface UsageOut {
@@ -251,6 +253,43 @@ export interface BillOut {
     detected_currency?: string | null
   } | null
   files: FileOut[]
+  /** open "I've paid" claims waiting for the owner (optional until every API has it) */
+  claims?: ClaimOut[]
+}
+
+/** A friend said they paid through a share link; the owner confirms or says not yet. */
+export interface ClaimOut {
+  id: UUID
+  person_id: UUID
+  /** effective currency, frozen when they claimed */
+  amount_cents: Minor
+  currency: string
+  /** their total when they claimed; the bill may have changed since */
+  expected_total_cents: Minor
+  via: 'person_link' | 'group_link'
+  created_at: string
+}
+
+export interface InboxClaim {
+  id: UUID
+  bill_id: UUID
+  bill_title: string
+  bill_date: string | null
+  person_id: UUID
+  person_name: string
+  color_seed: number
+  amount_cents: Minor
+  currency: string
+  expected_total_cents: Minor
+  created_at: string
+}
+
+export interface EnsuredLink {
+  link_id: UUID
+  person_id: UUID | null
+  token: string
+  path: string
+  url: string | null
 }
 
 export interface BillSummaryOut {
@@ -313,8 +352,17 @@ export interface ShareLinkCreated extends ShareLinkOut {
   url: string
 }
 
+export interface PublicClaim {
+  status: 'claimed' | 'confirmed' | 'rejected'
+  amount_cents: Minor
+  created_at: string
+}
+
 export interface PublicPerson {
+  /** opaque per-link handle used to claim on a group link */
+  key: string
   name: string
+  color_seed: number
   is_payer: boolean
   items: Array<{ name: string; share_cents: Minor }>
   items_cents: Minor
@@ -323,6 +371,8 @@ export interface PublicPerson {
   settle_total_cents: Minor | null
   settled: boolean
   outstanding_cents: Minor
+  effective_total_cents: Minor
+  claim: PublicClaim | null
 }
 
 export interface PublicShareOut {
@@ -341,6 +391,13 @@ export interface PublicShareOut {
   scope: 'person' | 'bill'
   person: PublicPerson | null
   people: PublicPerson[]
+  /** who keeps the bill; claims go to them */
+  host_name: string
+  payer_is_host: boolean
+  /** "I've paid" is possible (bill finished, someone still owes) */
+  claims_open: boolean
+  /** false for a quick split, whose one item is just the total */
+  itemised?: boolean
 }
 
 export interface AdminUserOut {

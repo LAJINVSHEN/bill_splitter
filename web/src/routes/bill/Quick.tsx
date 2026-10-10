@@ -3,7 +3,7 @@ import { stepPath } from '@/features/bill/flow'
 import { BillGate, StepTitle } from '@/features/bill/parts'
 import { QuickForm } from '@/features/bill/QuickForm'
 
-/** Edit a quick split (total, who, equally or by shares). Itemised bills are sent to their own step. */
+/** Edit a quick split (total, who, equally, exact amounts or percent). Itemised bills are sent to their own step. */
 export default function QuickPage() {
   return (
     <BillGate>

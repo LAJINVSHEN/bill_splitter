@@ -14,8 +14,8 @@ import type {
   Page,
   PersonOut,
   PublicShareOut,
-  ShareLinkCreated,
-  ShareLinkOut,
+  EnsuredLink,
+  InboxClaim,
   SplitMode,
   SummaryOut,
   UsageOut,
@@ -33,11 +33,11 @@ export const qk = {
   billsAll: ['bills'] as const,
   bill: (id: UUID) => ['bill', id] as const,
   job: (id: UUID) => ['job', id] as const,
-  shareLinks: (billId: UUID) => ['bill', billId, 'share-links'] as const,
   adminUsers: ['admin', 'users'] as const,
   adminUsage: (month?: string) => ['admin', 'usage', month ?? 'current'] as const,
   adminSettings: ['admin', 'settings'] as const,
   publicShare: (token: string) => ['public-share', token] as const,
+  inbox: ['me', 'claims'] as const,
 }
 
 const TERMINAL: JobStatus[] = ['succeeded', 'needs_review', 'failed', 'cancelled']
@@ -279,8 +279,8 @@ export interface QuickSplitVars {
   /** the bill's currency before this save; a change relabels first */
   previousCurrency?: string
   total_cents: number
-  mode: 'equal' | 'shares'
-  participants: Array<{ person_id: UUID; weight?: string }>
+  mode: 'equal' | 'shares' | 'amounts'
+  participants: Array<{ person_id: UUID; weight?: string; amount_cents?: number }>
   title?: string
   /** remember a freshly created bill so a retry continues it instead of making another */
   onCreated?: (billId: UUID) => void
@@ -407,30 +407,61 @@ export const fileUrl = (billId: UUID, fileId: UUID) =>
   api<{ url: string; expires_in: number; mime: string }>(`/bills/${billId}/files/${fileId}`)
 
 // ---- share links ---------------------------------------------------------------------------------
-export const useShareLinks = (billId: UUID) =>
-  useQuery({ queryKey: qk.shareLinks(billId), queryFn: async () => (await api<{ items: ShareLinkOut[] }>(`/bills/${billId}/share-links`)).items })
+/**
+ * The one link per person and for the group chat, created when missing. Asking again returns the
+ * same links (the server derives them), so this is a cached query rather than a mutation.
+ */
+export const useBillLinks = (billId: UUID, personIds: Array<UUID | null>, enabled = true) =>
+  useQuery({
+    queryKey: ['bill', billId, 'links', personIds] as const,
+    enabled,
+    staleTime: Infinity,
+    queryFn: async () =>
+      (await api<{ items: EnsuredLink[] }>(`/bills/${billId}/share-links/ensure`, {
+        method: 'POST',
+        body: { scopes: personIds.map((person_id) => ({ person_id })) },
+      })).items,
+  })
 
-export function useCreateShareLink(billId: UUID) {
+export const useResetLink = (billId: UUID) =>
+  useMutation({ mutationFn: (linkId: UUID) => api<EnsuredLink>(`/bills/${billId}/share-links/${linkId}/reset`, { method: 'POST' }) })
+
+/** Owner answers to "I've paid": every one returns the bill, and the inbox and badge follow. */
+function useClaimMutation<V>(billId: UUID, fn: (v: V) => Promise<BillOut>) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (body: { person_id?: UUID | null; expires_in_days?: number }) =>
-      api<ShareLinkCreated>(`/bills/${billId}/share-links`, { method: 'POST', body }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.shareLinks(billId) }),
+    mutationKey: ['bill', billId],
+    mutationFn: fn,
+    onSuccess: (bill) => {
+      applyBill(qc, bill)
+      void qc.invalidateQueries({ queryKey: qk.inbox })
+      void qc.invalidateQueries({ queryKey: qk.me })
+    },
   })
 }
+export const useConfirmClaim = (billId: UUID) =>
+  useClaimMutation(billId, ({ claimId, amount_cents }: { claimId: UUID; amount_cents?: number }) =>
+    api<BillOut>(`/bills/${billId}/claims/${claimId}/confirm`, { method: 'POST', body: amount_cents ? { amount_cents } : {} }),
+  )
+export const useRejectClaim = (billId: UUID) =>
+  useClaimMutation(billId, (claimId: UUID) => api<BillOut>(`/bills/${billId}/claims/${claimId}/reject`, { method: 'POST' }))
+export const useConfirmAll = (billId: UUID) =>
+  useClaimMutation(billId, () => api<BillOut>(`/bills/${billId}/claims/confirm-all`, { method: 'POST' }))
 
-export function useRevokeShareLink(billId: UUID) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (linkId?: UUID) => api<void>(`/bills/${billId}/share-links${linkId ? `/${linkId}` : ''}`, { method: 'DELETE' }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: qk.shareLinks(billId) }),
+/** Claims waiting across bills (Home's "To confirm"); refreshed when the app regains focus. */
+export const useInbox = (enabled = true) =>
+  useQuery({
+    queryKey: qk.inbox,
+    queryFn: async () => (await api<{ items: InboxClaim[] }>('/me/claims')).items,
+    enabled,
+    refetchOnWindowFocus: true,
+    refetchInterval: 60_000,
   })
-}
 
 export const usePublicShare = (token: string) =>
   useQuery({
     queryKey: qk.publicShare(token),
-    queryFn: () => api<PublicShareOut>(`/public/share/${encodeURIComponent(token)}`, { auth: false }),
+    queryFn: () => api<PublicShareOut>(`/public/share/${encodeURIComponent(token)}`, { auth: false, timeoutMs: 75_000 }),
     retry: (count, err) => count < 2 && !(err as { status?: number }).status?.toString().startsWith('4'),
   })
 

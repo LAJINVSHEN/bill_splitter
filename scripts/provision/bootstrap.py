@@ -52,7 +52,7 @@ def main() -> int:
     step("Bootstrap the first admin (production)")
     if not shutil.which("docker"):
         die("Docker is required")
-    values, missing = desired_env(env, pages_url(env), env.prod_get("CRON_SECRET"))
+    values, missing = desired_env(env, pages_url(env), env.prod_get("CRON_SECRET"), env.prod_get("SHARE_TOKEN_SECRET"))
     needed = [k for k in ("DATABASE_URL", "SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY") if k in missing]
     if needed and not args.dry_run:
         die(f"{', '.join(needed)} missing from .env.production.local; run supabase.py first")

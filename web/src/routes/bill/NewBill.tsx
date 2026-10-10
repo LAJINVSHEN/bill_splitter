@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import { FlowShell } from '@/app/FlowShell'
 import { Button } from '@/components/Button'
-import { Notice } from '@/components/Display'
+import { FullPageLoader, Notice } from '@/components/Display'
 import { SelectField, TextField } from '@/components/Field'
-import { useCreateBill, useMe } from '@/data/queries'
+import { useBill, useCreateBill, useMe, usePatchBill } from '@/data/queries'
 import { cn } from '@/lib/cn'
-import { STEPS, todayLocal } from '@/features/bill/flow'
+import type { BillOut, UUID } from '@/lib/types'
+import { billTitle, isUUID, STEPS, stepLinks, todayLocal } from '@/features/bill/flow'
 import { CurrencyOptions } from '@/features/bill/inputs'
 import { StepTitle, FooterBar } from '@/features/bill/parts'
 import { QuickForm } from '@/features/bill/QuickForm'
@@ -56,7 +57,10 @@ export default function NewBillPage() {
   )
 
   if (mode === 'quick') return <QuickForm key="quick" top={top} />
-  if (mode === 'manual') return <ManualStart top={top} />
+  if (mode === 'manual') {
+    const billId = params.get('bill')
+    return isUUID(billId ?? undefined) ? <ManualStartFor billId={billId as UUID} top={<StepTitle>Type the items</StepTitle>} /> : <ManualStart top={top} />
+  }
   return (
     <ScanStart
       key="scan"
@@ -66,30 +70,51 @@ export default function NewBillPage() {
   )
 }
 
-/** Typing items: say where and in what currency, then pick people. The bill is created on Next. */
-function ManualStart({ top }: { top: React.ReactNode }) {
+/** Coming back to Start on a typed bill: wait for it, then edit it in place. */
+function ManualStartFor({ billId, top }: { billId: UUID; top: React.ReactNode }) {
+  const bill = useBill(billId)
+  if (bill.data) return <ManualStart key={bill.data.id} top={top} bill={bill.data} />
+  if (bill.isPending) return <FullPageLoader label="Loading bill" />
+  return <ManualStart top={top} />
+}
+
+/**
+ * Typing items: what it was, when, and in what currency, then pick people. A new bill is created
+ * on Next; coming back here from a later step edits the same bill.
+ */
+function ManualStart({ top, bill }: { top: React.ReactNode; bill?: BillOut }) {
   const navigate = useNavigate()
   const me = useMe()
   const create = useCreateBill()
-  const [merchant, setMerchant] = useState('')
-  const [date, setDate] = useState(todayLocal())
-  const [currency, setCurrency] = useState<string | null>(null)
+  const patch = usePatchBill(bill?.id ?? '')
+  const [merchant, setMerchant] = useState(bill ? billTitle(bill) : '')
+  const [date, setDate] = useState(bill ? (bill.bill_date ?? '') : todayLocal())
+  const [currency, setCurrency] = useState<string | null>(bill?.currency ?? null)
   const cur = currency ?? me.data?.default_currency ?? 'SGD'
+  const error = create.error ?? patch.error
 
-  const next = () =>
-    create.mutate(
-      { source: 'manual', merchant: merchant.trim() || undefined, bill_date: date || undefined, currency: cur },
-      { onSuccess: (b) => navigate(`/bills/${b.id}/people`, { replace: true }) },
+  const next = () => {
+    const fields = { merchant: merchant.trim() || undefined, bill_date: date || undefined }
+    if (!bill) {
+      create.mutate({ source: 'manual', ...fields, currency: cur }, { onSuccess: (b) => navigate(`/bills/${b.id}/people`, { replace: true }) })
+      return
+    }
+    patch.mutate(
+      { merchant: fields.merchant ?? null, bill_date: fields.bill_date ?? null, ...(cur !== bill.currency && !bill.currency_locked ? { currency: cur } : {}) },
+      { onSuccess: (b) => navigate(`/bills/${b.id}/people`) },
     )
+  }
 
   return (
     <FlowShell
+      billId={bill?.id}
       steps={STEPS.manual}
       current={0}
+      links={bill ? stepLinks(bill) : undefined}
       footer={
         <FooterBar>
           <span className="flex-1" />
-          <Button size="lg" loading={create.isPending} onClick={next}>
+          <Button size="lg" loading={create.isPending || patch.isPending} onClick={next}>
             Next: who’s splitting
           </Button>
         </FooterBar>
@@ -103,14 +128,20 @@ function ManualStart({ top }: { top: React.ReactNode }) {
         }}
       >
         {top}
-        <TextField label="Where was it?" value={merchant} onChange={(e) => setMerchant(e.target.value)} maxLength={120} autoComplete="off" enterKeyHint="next" />
+        <TextField label="What was it?" value={merchant} onChange={(e) => setMerchant(e.target.value)} maxLength={120} autoComplete="off" enterKeyHint="next" />
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField label="Date" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <SelectField label="Currency" value={cur} onChange={(e) => setCurrency(e.target.value)}>
+          <SelectField
+            label="Currency"
+            value={cur}
+            disabled={bill?.currency_locked}
+            hint={bill?.currency_locked ? 'Locked after the first payment' : undefined}
+            onChange={(e) => setCurrency(e.target.value)}
+          >
             <CurrencyOptions />
           </SelectField>
         </div>
-        {create.error && <Notice tone="danger">{create.error.message}</Notice>}
+        {error && <Notice tone="danger">{error.message}</Notice>}
         <button type="submit" className="sr-only" tabIndex={-1}>
           Next
         </button>
