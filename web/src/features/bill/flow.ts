@@ -4,10 +4,23 @@ import type { BillOut, BillSource, BillStatus, UUID } from '@/lib/types'
 
 /** Step labels shown in FlowShell, per way of starting a bill. */
 export const STEPS: Record<BillSource, string[]> = {
-  scan: ['Scan', 'People', 'Review', 'Assign', 'Done'],
+  scan: ['Scan', 'People', 'Items', 'Assign', 'Done'],
   manual: ['Start', 'People', 'Items', 'Assign', 'Done'],
   quick: ['Split', 'Done'],
 }
+
+/** Where each step in STEPS lives for this bill; steps not reached yet (or not revisitable) are undefined. */
+export function stepLinks(bill: Pick<BillOut, 'id' | 'status' | 'source'>): Array<string | undefined> {
+  const base = `/bills/${bill.id}`
+  if (bill.source === 'quick') return [undefined, bill.status === 'complete' ? base : undefined]
+  const reached = { complete: 4, assigning: 3, review: 2 }[bill.status as string] ?? 1
+  const start = bill.source === 'manual' ? `/bills/new?mode=manual&bill=${bill.id}` : undefined
+  return [start, `${base}/people`, `${base}/review`, `${base}/assign`, base].map((to, i) => (i <= reached ? to : undefined))
+}
+
+/** A receipt that adds up skips the item check and goes straight to who had what. */
+export const itemsAddUp = (bill: Pick<BillOut, 'items' | 'validation'>) =>
+  bill.items.length > 0 && Boolean(bill.validation?.ok) && !bill.validation?.warnings.length
 
 /** Where an unfinished bill continues. Every "Resume" can point at /bills/:id and land here. */
 export function stepPath(bill: Pick<BillOut, 'id' | 'status' | 'source'>): string {

@@ -89,6 +89,10 @@ def public_limit() -> str:
     return get_settings().rate_limit_public
 
 
+def claims_limit() -> str:
+    return get_settings().rate_limit_claims
+
+
 def admin_create_limit() -> str:
     return get_settings().rate_limit_admin_create
 

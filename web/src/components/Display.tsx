@@ -116,7 +116,7 @@ export function PageTitle({ children, sub, back, actions }: {
             {back.label}
           </Link>
         )}
-        <h1 className="display text-[34px] md:text-[40px]">{children}</h1>
+        <h1 className="display break-words text-[34px] md:text-[40px]">{children}</h1>
         {sub && <p className="mt-1.5 text-[15px] text-ink-2">{sub}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">{actions}</div>}

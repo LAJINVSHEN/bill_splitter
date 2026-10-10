@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { FlowShell } from '@/app/FlowShell'
-import { Button } from '@/components/Button'
+import { Button, ButtonLink } from '@/components/Button'
 import { Avatar, Money, SectionTitle } from '@/components/Display'
 import { Dialog, useToast } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
@@ -10,7 +10,10 @@ import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import type { BillOut, ItemOut, ParticipantOut, UUID } from '@/lib/types'
 import { itemCounts, quantityMismatch, shareWithEveryone, soFar, toggleItem, toInput, whoIsOn, previewSplit } from '@/features/bill/assignment'
-import { billTitle, scanRunning, STEPS } from '@/features/bill/flow'
+import { FullName } from '@/components/FullName'
+import { ScrollStrip } from '@/components/ScrollStrip'
+import { EditPeopleDialog } from '@/features/bill/EditPeopleDialog'
+import { scanRunning, STEPS, stepLinks } from '@/features/bill/flow'
 import { BillGate, FooterBar, SaveError, StepTitle } from '@/features/bill/parts'
 import { SplitDialog } from '@/features/bill/SplitDialog'
 import { trimDecimal } from '@/features/bill/receiptDraft'
@@ -34,7 +37,7 @@ export default function AssignStep() {
 
 const personName = (p: ParticipantOut) => (p.is_self ? 'Me' : p.name)
 
-const MODE_NOTE: Partial<Record<NonNullable<ItemOut['split_mode']>, string>> = { weighted: 'by shares', custom: 'exact amounts' }
+const MODE_NOTE: Partial<Record<NonNullable<ItemOut['split_mode']>, string>> = { weighted: 'by percent', custom: 'exact amounts' }
 
 function Who({ item, participants }: { item: ItemOut; participants: ParticipantOut[] }) {
   const who = whoIsOn(item, participants)
@@ -64,6 +67,7 @@ function AssignScreen({ bill }: { bill: BillOut }) {
   const active = participants.find((p) => p.person_id === activeId) ?? participants[0]
   const [dialogItem, setDialogItem] = useState<UUID | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [peopleOpen, setPeopleOpen] = useState(false)
   const [leaving, setLeaving] = useState(false)
 
   const counts = itemCounts(bill.items)
@@ -107,6 +111,7 @@ function AssignScreen({ bill }: { bill: BillOut }) {
       billId={bill.id}
       steps={STEPS[bill.source]}
       current={3}
+      links={stepLinks(bill)}
       save={painter}
       footer={
         <FooterBar>
@@ -128,17 +133,17 @@ function AssignScreen({ bill }: { bill: BillOut }) {
       <div className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] lg:gap-x-[var(--app-gutter)]">
         <div className="flex min-w-0 flex-col gap-4">
           {painter.error != null && <SaveError error={painter.error} onRetry={painter.retry} />}
-          <StepTitle
-            sub={
-              <>
-                {billTitle(bill)} · <Money minor={grand} currency={bill.currency} code />
-              </>
-            }
-          >
-            Who had what?
-          </StepTitle>
+          <div className="flex flex-wrap items-end justify-between gap-x-4">
+            <StepTitle sub={<Money minor={grand} currency={bill.currency} code />}>Who had what?</StepTitle>
+            {bill.source !== 'quick' && (
+              <ButtonLink to={`/bills/${bill.id}/review`} variant="quiet" icon={<Icon name="type" size={18} />}>
+                Edit items
+              </ButtonLink>
+            )}
+          </div>
 
-          <div role="group" aria-label="Assigning for" className="-mx-5 flex gap-[18px] overflow-x-auto border-b border-rule px-5 md:mx-0 md:px-0">
+          <div className="-mx-5 flex items-center gap-2 border-b border-rule pl-5 pr-3 md:mx-0 md:px-0">
+            <ScrollStrip label="Assigning for" className="flex-1" innerClassName="gap-[18px]">
             {participants.map((p) => {
               const on = p.person_id === active?.person_id
               return (
@@ -146,7 +151,10 @@ function AssignScreen({ bill }: { bill: BillOut }) {
                   key={p.person_id}
                   type="button"
                   aria-pressed={on}
-                  onClick={() => setActiveId(p.person_id)}
+                  onClick={(e) => {
+                    setActiveId(p.person_id)
+                    e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+                  }}
                   className={cn(
                     'flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap text-[16px] font-semibold',
                     on ? 'text-ink shadow-[inset_0_-3px_0_var(--color-cobalt)]' : 'text-ink-2 hover:text-ink',
@@ -157,6 +165,15 @@ function AssignScreen({ bill }: { bill: BillOut }) {
                 </button>
               )
             })}
+            </ScrollStrip>
+            <button
+              type="button"
+              onClick={() => setPeopleOpen(true)}
+              className="flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap border-l border-rule pl-3 text-[15px] font-bold text-cobalt hover:text-cobalt-ink"
+            >
+              <Icon name="people" size={18} />
+              People
+            </button>
           </div>
 
           <ul aria-label={`Items — tap to add or remove ${active ? personName(active) : ''}`} className="-mt-4">
@@ -177,10 +194,10 @@ function AssignScreen({ bill }: { bill: BillOut }) {
                       {mine && <Icon name="check" size={16} strokeWidth={2.6} />}
                     </span>
                     <span className="min-w-0">
-                      <span className="block truncate text-[16px] font-medium">
+                      <FullName text={qty !== '1' ? `${item.name} ×${qty}` : item.name} className="text-[16px] font-medium">
                         {item.name}
                         {qty !== '1' && <span className="text-ink-2"> ×{qty}</span>}
-                      </span>
+                      </FullName>
                       {item.details && <span className="block truncate text-[14px] text-ink-2">with {item.details}</span>}
                       {(mismatch || note) && (
                         <span className={cn('block text-[14px] font-semibold', mismatch ? 'text-warn' : 'text-ink-2')}>
@@ -250,6 +267,8 @@ function AssignScreen({ bill }: { bill: BillOut }) {
           </dl>
         </aside>
       </div>
+
+      <EditPeopleDialog bill={bill} open={peopleOpen} onClose={() => setPeopleOpen(false)} />
 
       <SplitDialog
         item={dialog}

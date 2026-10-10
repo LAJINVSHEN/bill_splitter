@@ -144,11 +144,13 @@ class AssignmentsIn(InputModel):
 class QuickParticipantIn(InputModel):
     person_id: UUID
     weight: Weight | None = None
+    amount_cents: Annotated[int, Field(ge=0, le=MAX_ITEM_CENTS)] | None = None
 
 
 class QuickSplitIn(InputModel):
     total_cents: Annotated[int, Field(gt=0, le=MAX_ITEM_CENTS)]
-    mode: Literal["equal", "shares"] = "equal"
+    # equal; shares (weights, e.g. percentages); amounts (exact, must add up to the total)
+    mode: Literal["equal", "shares", "amounts"] = "equal"
     participants: Annotated[list[QuickParticipantIn], Field(min_length=1, max_length=50)]
     title: Title | None = None
 
@@ -162,6 +164,11 @@ class QuickSplitIn(InputModel):
                 raise ValueError("shares mode needs a weight per person")
             if sum((p.weight or Decimal(0)) for p in self.participants) <= 0:
                 raise ValueError("weights must add up to more than zero")
+        if self.mode == "amounts":
+            if any(p.amount_cents is None for p in self.participants):
+                raise ValueError("amounts mode needs an amount per person")
+            if sum(p.amount_cents or 0 for p in self.participants) != self.total_cents:
+                raise ValueError("amounts must add up to the total")
         return self
 
 
@@ -324,6 +331,20 @@ class BillSummaryOut(OutputModel):
     updated_at: datetime
 
 
+class ClaimOut(OutputModel):
+    id: UUID
+    person_id: UUID
+    amount_cents: int  # effective currency, frozen when they claimed
+    currency: str
+    expected_total_cents: int  # their total when they claimed (the bill may have changed since)
+    via: str  # person_link | group_link
+    created_at: datetime
+
+
+class ClaimConfirmIn(InputModel):
+    amount_cents: Annotated[int, Field(gt=0, le=MAX_ITEM_CENTS)] | None = None  # default: what they claimed
+
+
 class BillOut(OutputModel):
     id: UUID
     title: str | None
@@ -339,7 +360,7 @@ class BillOut(OutputModel):
     settle_currency: str | None
     fx_rate: DecimalStr | None
     effective_currency: str
-    currency_locked: bool  # true once anyone has settled: currency/conversion can't change
+    currency_locked: bool  # true once anyone has settled or claimed: currency/conversion can't change
     receipt_meta: dict[str, Any]
     created_at: datetime
     updated_at: datetime
@@ -350,3 +371,4 @@ class BillOut(OutputModel):
     split: SplitOut
     latest_job: JobBrief | None
     files: list[FileOut]
+    claims: list[ClaimOut]  # open "I've paid" claims waiting for the owner

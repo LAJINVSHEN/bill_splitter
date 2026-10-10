@@ -6,7 +6,7 @@ import { Button } from '@/components/Button'
 import { Notice } from '@/components/Display'
 import { isJobActive, useMe, usePatchBill, usePutParticipants } from '@/data/queries'
 import type { BillOut, UUID } from '@/lib/types'
-import { STEPS } from '@/features/bill/flow'
+import { itemsAddUp, STEPS, stepLinks } from '@/features/bill/flow'
 import { BillGate, SaveError, StepTitle, FooterBar } from '@/features/bill/parts'
 import { PeoplePicker } from '@/features/bill/PeoplePicker'
 import { ScanStrip } from '@/features/bill/ScanStrip'
@@ -37,6 +37,11 @@ function PeopleScreen({ bill }: { bill: BillOut }) {
     setLeaving(true)
     try {
       if (!(await save.flush())) return
+      if (skipReview) {
+        if (bill.status === 'draft' || bill.status === 'review') await patch.mutateAsync({ status: 'assigning' })
+        navigate(`/bills/${bill.id}/assign`)
+        return
+      }
       if (bill.status === 'draft') await patch.mutateAsync({ status: 'review' })
       navigate(`/bills/${bill.id}/review`)
     } catch {
@@ -47,11 +52,13 @@ function PeopleScreen({ bill }: { bill: BillOut }) {
   }
 
   const n = selected.length
+  const skipReview = bill.source === 'scan' && itemsAddUp(bill)
   return (
     <FlowShell
       billId={bill.id}
       steps={STEPS[bill.source]}
       current={1}
+      links={stepLinks(bill)}
       save={save}
       footer={
         <FooterBar>
@@ -60,7 +67,7 @@ function PeopleScreen({ bill }: { bill: BillOut }) {
             {n === 1 ? 'person' : 'people'}
           </span>
           <Button size="lg" onClick={() => void next()} disabled={scanning} loading={leaving} icon={scanning ? <EqualsMark size="sm" moving /> : undefined}>
-            {scanning ? 'Waiting for receipt' : bill.items.length ? 'Review items' : 'Add items'}
+            {scanning ? 'Waiting for receipt' : skipReview ? 'Who had what' : bill.items.length ? 'Check items' : 'Add items'}
           </Button>
         </FooterBar>
       }

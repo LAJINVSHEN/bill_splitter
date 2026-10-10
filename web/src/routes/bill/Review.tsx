@@ -11,7 +11,7 @@ import { qk, usePatchBill, usePutReceipt } from '@/data/queries'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import type { BillOut } from '@/lib/types'
-import { scanRunning, STEPS } from '@/features/bill/flow'
+import { scanRunning, STEPS, stepLinks } from '@/features/bill/flow'
 import { CurrencyOptions } from '@/features/bill/inputs'
 import { ChargesList, ItemsTable, TotalsList } from '@/features/bill/ItemsEditor'
 import { BillGate, SaveError, StepTitle, FooterBar } from '@/features/bill/parts'
@@ -69,15 +69,20 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
     draftRef.current = next
     setDraft(next)
   }
-  const save = useAutosave((p: DraftPayload) => put.mutateAsync(p.body), {
-    delay: 700,
-    onSaved: (saved, sent) => commit(mergeSaved(draftRef.current, sent, saved)),
-  })
+  // The payload is built when the request goes out (not when the change is queued), so it always
+  // carries the ids the previous save handed back.
+  const save = useAutosave(
+    async () => {
+      const sent: DraftPayload = draftToReceipt(draftRef.current, currency)
+      return { sent, saved: await put.mutateAsync(sent.body) }
+    },
+    { delay: 700, onSaved: ({ sent, saved }) => commit(mergeSaved(draftRef.current, sent, saved)) },
+  )
   const update = (fn: (d: ReceiptDraft) => ReceiptDraft) => {
     let next = fn(draftRef.current)
     if (next.charges.some((c) => c.percentTyped)) next = { ...next, charges: refreshPercents(next.charges, itemsTotal(next.items, currency), currency) }
     commit(next)
-    save.schedule(draftToReceipt(next, currency))
+    save.schedule(null)
   }
 
   const switchCurrency = async (code: string) => {
@@ -124,6 +129,7 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
       billId={bill.id}
       steps={STEPS[bill.source]}
       current={2}
+      links={stepLinks(bill)}
       save={save}
       footer={
         <FooterBar>
@@ -164,7 +170,7 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_minmax(0,1.4fr)]">
-            <TextField label="Place" value={draft.merchant} maxLength={120} autoComplete="off" onChange={(e) => update((d) => ({ ...d, merchant: e.target.value }))} />
+            <TextField label="What was it?" value={draft.merchant} maxLength={120} autoComplete="off" onChange={(e) => update((d) => ({ ...d, merchant: e.target.value }))} />
             <TextField label="Date" type="date" value={draft.date} onChange={(e) => update((d) => ({ ...d, date: e.target.value }))} />
             <SelectField
               label="Currency"
@@ -196,14 +202,11 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
 
           <ItemsTable draft={draft} update={update} currency={currency} warnings={bill.validation?.warnings ?? []} disabled={busy} />
 
-          <div className="flex flex-wrap items-start gap-x-10 gap-y-6">
-            <div className="min-w-0 flex-[1_1_300px]">
-              <ChargesList draft={draft} update={update} currency={currency} disabled={busy} />
-            </div>
-            <div className="flex min-w-0 flex-[0_1_340px] sm:pt-9">
-              <TotalsList draft={draft} update={update} currency={currency} validation={bill.validation} disabled={busy} />
-            </div>
-          </div>
+          <ChargesList draft={draft} update={update} currency={currency} disabled={busy} />
+
+          <section aria-label="Totals" className="md:ml-auto md:w-[min(100%,492px)] md:pr-[52px]">
+            <TotalsList draft={draft} update={update} currency={currency} validation={bill.validation} disabled={busy} showSubtotal={hasPhoto} />
+          </section>
         </div>
       </div>
 

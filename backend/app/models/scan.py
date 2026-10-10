@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -162,9 +163,60 @@ class ShareLink(Base):
         UUID(as_uuid=True), ForeignKey("people.id", ondelete="CASCADE")
     )
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # 'random' = legacy token shown once; 'derived' = HMAC of the link id, so it can be shown again
+    token_kind: Mapped[str] = mapped_column(Text, nullable=False, server_default="random")
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_viewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = created_at_col()
 
-    __table_args__ = (Index("ix_share_links_bill_id", "bill_id"),)
+    __table_args__ = (
+        Index("ix_share_links_bill_id", "bill_id"),
+        CheckConstraint("token_kind IN ('random', 'derived')", name="token_kind"),
+        # one active derived link per scope: per person, and one for the whole bill (the group link)
+        Index("uq_share_links_active_person", "bill_id", "person_id", unique=True,
+              postgresql_where=text("revoked_at IS NULL AND token_kind = 'derived' AND person_id IS NOT NULL")),
+        Index("uq_share_links_active_group", "bill_id", unique=True,
+              postgresql_where=text("revoked_at IS NULL AND token_kind = 'derived' AND person_id IS NULL")),
+    )
+
+
+CLAIM_STATUSES = ("claimed", "confirmed", "rejected", "withdrawn", "superseded", "reverted")
+
+
+class PaymentClaim(Base):
+    """A friend saying "I've paid" through a share link. A request, not a settlement: only the
+    owner's Confirm writes the participant's settled amount."""
+
+    __tablename__ = "payment_claims"
+
+    id: Mapped[uuid.UUID] = uuid_pk()
+    bill_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    person_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="CASCADE"), nullable=False
+    )
+    share_link_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("share_links.id", ondelete="SET NULL")
+    )
+    via: Mapped[str] = mapped_column(Text, nullable=False)
+    amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)  # effective currency
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    expected_total_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)  # their total when they claimed
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="claimed")
+    client_key: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = created_at_col()
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        ForeignKeyConstraint(["bill_id", "person_id"], ["bill_participants.bill_id", "bill_participants.person_id"],
+                             ondelete="CASCADE"),
+        CheckConstraint("via IN ('person_link', 'group_link')", name="via"),
+        CheckConstraint("amount_cents > 0", name="amount_positive"),
+        CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency"),
+        CheckConstraint(f"status IN {CLAIM_STATUSES}", name="status"),
+        UniqueConstraint("share_link_id", "client_key"),
+        Index("uq_payment_claims_open", "bill_id", "person_id", unique=True, postgresql_where=text("status = 'claimed'")),
+        Index("ix_payment_claims_owner_open", "owner_id", postgresql_where=text("status = 'claimed'")),
+        Index("ix_payment_claims_share_link_id", "share_link_id"),
+    )

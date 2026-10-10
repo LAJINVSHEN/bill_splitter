@@ -41,6 +41,7 @@ from app.schemas.bills import (
     ShareOut,
 )
 from app.schemas.common import Page
+from app.services import claims as claims_svc
 from app.services import fx
 from app.services.container import Services
 from app.services.people import ensure_self
@@ -62,13 +63,14 @@ async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
     validation = validate_bill(bill)
     job = await scans_repo.latest_job(db, bill.id)
     files = await scans_repo.files_for_bill(db, bill.id)
+    claims = await claims_svc.open_claims(db, bill.id)
     now = _now()
     return BillOut(
         id=bill.id, title=bill.title, merchant=bill.merchant, bill_date=bill.bill_date, currency=bill.currency,
         status=bill.status, source=bill.source, payer_person_id=effective_payer(bill),
         subtotal_cents=bill.subtotal_cents, grand_total_cents=bill.grand_total_cents,
         tax_scenario=bill.tax_scenario, settle_currency=bill.settle_currency, fx_rate=bill.fx_rate,
-        effective_currency=effective_currency(bill), currency_locked=currency_locked(bill),
+        effective_currency=effective_currency(bill), currency_locked=currency_locked(bill) or bool(claims),
         receipt_meta=bill.receipt_meta or {},
         created_at=bill.created_at, updated_at=bill.updated_at,
         items=[ItemOut(id=i.id, position=i.position, name=i.name, details=i.details, quantity=i.quantity,
@@ -90,6 +92,7 @@ async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
                        created_at=f.created_at, expires_at=f.expires_at,
                        available=f.deleted_at is None and f.expires_at > now)
                for f in files],
+        claims=claims,
     )
 
 
@@ -299,6 +302,9 @@ async def _apply_currency_changes(db: AsyncSession, user: CurrentUser, bill: Bil
         if currency_locked(bill):
             raise Conflict("currency_locked", "Someone has already settled up, so the currency can't change. "
                                               "Undo their settlement first.")
+        if await claims_svc.has_open(db, bill.id):
+            raise Conflict("currency_locked", "Someone says they've paid, so the currency can't change. "
+                                              "Confirm or answer their payment first.")
     if changes_currency:
         await _rescale_amounts(db, bill, bill.currency, new_currency)
         bill.currency = new_currency
@@ -480,7 +486,7 @@ async def put_assignments(db: AsyncSession, user: CurrentUser, bill_id: UUID, da
 
 
 async def put_quick(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: QuickSplitIn) -> BillOut:
-    """Quick split = one synthetic item ("Total") shared equally or by shares."""
+    """Quick split = one synthetic item ("Total") shared equally, by shares or by exact amounts."""
     bill = await load_bill(db, user.id, bill_id, for_update=True)
     if bill.status == "scanning":
         raise Conflict("scan_in_progress", "Wait for the scan to finish (or cancel it) first.")
@@ -491,12 +497,13 @@ async def put_quick(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: Qu
     await _set_participants(db, user, bill, person_ids)
     item = BillItem(bill_id=bill.id, position=0, name=data.title or "Total", quantity=Decimal(1),
                     unit_price_cents=data.total_cents, total_price_cents=data.total_cents,
-                    split_mode="equal" if data.mode == "equal" else "weighted")
+                    split_mode={"equal": "equal", "shares": "weighted", "amounts": "custom"}[data.mode])
     db.add(item)
     await db.flush()
     await db.execute(insert(ItemShare), [
         {"item_id": item.id, "bill_id": bill.id, "person_id": p.person_id, "position": pos,
-         "weight": Decimal(1) if data.mode == "equal" else p.weight, "amount_cents": None}
+         "weight": Decimal(1) if data.mode == "equal" else (p.weight if data.mode == "shares" else None),
+         "amount_cents": p.amount_cents if data.mode == "amounts" else None}
         for pos, p in enumerate(data.participants)
     ])
     bill.source = "quick"
@@ -526,6 +533,7 @@ async def settle(db: AsyncSession, user: CurrentUser, bill_id: UUID, person_id: 
         part.settled_at = _now()
         part.settled_amount_cents = amount_cents
         bill.updated_at = _now()
+        await claims_svc.supersede(db, bill.id, person_id)
         await db.commit()
     return await _reload_out(db, user.id, bill_id)
 
@@ -539,6 +547,7 @@ async def unsettle(db: AsyncSession, user: CurrentUser, bill_id: UUID, person_id
         part.settled_at = None
         part.settled_amount_cents = None
         bill.updated_at = _now()
+        await claims_svc.revert(db, bill.id, person_id)
         await db.commit()
     return await _reload_out(db, user.id, bill_id)
 

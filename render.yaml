@@ -50,6 +50,8 @@ services:
         sync: false
       - key: CRON_SECRET            # same value as the GitHub Actions secret
         sync: false
+      - key: SHARE_TOKEN_SECRET     # signs share links; rotating it turns off every link
+        sync: false
       - key: PUBLIC_APP_URL         # https://even.pages.dev (or the assigned Pages subdomain)
         sync: false
       - key: CORS_ORIGINS           # the Pages origin only

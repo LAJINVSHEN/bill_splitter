@@ -67,22 +67,3 @@ export function CurrencyOptions({ short }: { short?: boolean }) {
     </>
   )
 }
-
-/** − n + for whole-number shares. 44 px targets. */
-export function Stepper({ value, onChange, label, min = 0, max = 99 }: { value: number; onChange: (n: number) => void; label: string; min?: number; max?: number }) {
-  const btn =
-    'grid h-11 w-11 place-items-center rounded-[var(--radius-control)] border-[1.5px] border-ink text-[20px] font-bold leading-none text-ink hover:bg-mist disabled:border-rule-2 disabled:text-ink-2'
-  return (
-    <span role="group" aria-label={`Shares for ${label}`} className="inline-flex items-center gap-1">
-      <button type="button" className={btn} aria-label={`Fewer shares for ${label}`} disabled={value <= min} onClick={() => onChange(Math.max(min, value - 1))}>
-        −
-      </button>
-      <span className="num w-7 text-center text-[17px] font-bold" aria-live="polite">
-        {value}
-      </span>
-      <button type="button" className={btn} aria-label={`More shares for ${label}`} disabled={value >= max} onClick={() => onChange(Math.min(max, value + 1))}>
-        +
-      </button>
-    </span>
-  )
-}

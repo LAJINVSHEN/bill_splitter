@@ -391,6 +391,17 @@ async def test_quick_split_equal_and_by_shares(ctx: Ctx) -> None:
     r = await ctx.client.put(f"/api/bills/{bill['id']}/quick", headers=user.headers, json={
         "total_cents": 9000, "mode": "shares", "participants": [{"person_id": a}]})
     assert r.status_code == 422
+    r = await ctx.client.put(f"/api/bills/{bill['id']}/quick", headers=user.headers, json={
+        "total_cents": 9000, "mode": "amounts", "participants": [{"person_id": a, "amount_cents": 2500},
+                                                                 {"person_id": b, "amount_cents": 6500}]})
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["items"][0]["split_mode"] == "custom"
+    assert [p["total_cents"] for p in out["split"]["people"]] == [2500, 6500]
+    r = await ctx.client.put(f"/api/bills/{bill['id']}/quick", headers=user.headers, json={
+        "total_cents": 9000, "mode": "amounts", "participants": [{"person_id": a, "amount_cents": 2500},
+                                                                 {"person_id": b, "amount_cents": 6000}]})
+    assert r.status_code == 422
 
 
 async def test_patch_bill_fields_payer_and_status(ctx: Ctx) -> None:

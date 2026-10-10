@@ -83,7 +83,7 @@ class Api:
         return http(method, f"{API}{path}", token=self.key, body=body)[1]
 
 
-def desired_env(env: Env, site: str, cron_secret: str) -> tuple[dict[str, str], list[str]]:
+def desired_env(env: Env, site: str, cron_secret: str, share_secret: str) -> tuple[dict[str, str], list[str]]:
     values = dict(FORCED)
     missing = []
     for k in FROM_PROD_FILE:
@@ -105,6 +105,7 @@ def desired_env(env: Env, site: str, cron_secret: str) -> tuple[dict[str, str], 
     values["PUBLIC_APP_URL"] = site
     values["CORS_ORIGINS"] = site
     values["CRON_SECRET"] = cron_secret
+    values["SHARE_TOKEN_SECRET"] = share_secret
     return values, missing
 
 
@@ -299,7 +300,8 @@ def main() -> int:
     step(f"Render web service '{args.name}'")
     site = pages_url(env)
     cron_secret = env.prod_get("CRON_SECRET") or random_secret(48)
-    values, missing = desired_env(env, site, cron_secret)
+    share_secret = env.prod_get("SHARE_TOKEN_SECRET") or random_secret(48)
+    values, missing = desired_env(env, site, cron_secret, share_secret)
     if missing:
         print(f"  not set yet: {', '.join(missing)} (the service starts anyway; scans need AZURE_DI_*/OPENAI_API_KEY)")
     if not require(env, "RENDER_API_KEY", dry_run=args.dry_run):
@@ -308,7 +310,7 @@ def main() -> int:
         return 0
     if "DATABASE_URL" in missing and not args.dry_run:
         die("run supabase.py first (DATABASE_URL/SUPABASE_* missing from .env.production.local)")
-    env.write_prod({"CRON_SECRET": cron_secret}, args.dry_run)  # same value goes to GitHub (github.py)
+    env.write_prod({"CRON_SECRET": cron_secret, "SHARE_TOKEN_SECRET": share_secret}, args.dry_run)  # same value goes to GitHub (github.py)
 
     api = Api(env.get("RENDER_API_KEY"), args.dry_run)
     owner = pick_owner(api, args.owner)

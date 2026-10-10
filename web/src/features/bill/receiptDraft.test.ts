@@ -113,6 +113,15 @@ describe('payload', () => {
     expect(merged.items.map((r) => r.id)).toEqual(['id-a', 'id-b', undefined])
     expect(merged.items[1]?.name).toBe('Gyoza 6pc')
   })
+
+  it('takes the server ids as the truth, so a re-created or deleted item never leaves a stale id', () => {
+    // two names typed quickly: the second save went out before the first one's ids came back,
+    // so the server re-created both rows with new ids (the old regression: "unknown_item")
+    const stale = { ...draft, items: draft.items.map((r, i) => ({ ...r, id: i < 2 ? `old-${i}` : 'gone' })) }
+    const sent = { ...draftToReceipt(draft, 'SGD'), itemKeys: draft.items.slice(0, 2).map((r) => r.key) }
+    const merged = mergeSaved(stale, sent, { items: [{ id: 'new-0' }, { id: 'new-1' }] as BillOut['items'], charges: [] })
+    expect(merged.items.map((r) => r.id)).toEqual(['new-0', 'new-1', undefined])
+  })
 })
 
 describe('draftFromBill', () => {

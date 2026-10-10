@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import { Wordmark } from '@/components/Brand'
 import { useMe, useSummary, useUsage } from '@/data/queries'
 import { InProgress, RecentBills, StartBill } from '@/features/home/HomeSections'
+import { ToConfirm } from '@/features/home/ToConfirm'
 
 /** Home: start a bill (scan first), resume one, and the latest ones. Balances live on People. */
 export default function HomePage() {
@@ -27,6 +28,9 @@ export default function HomePage() {
       </header>
 
       <h1 className="sr-only">Home</h1>
+
+      {/* friends' "I've paid" come first: they're waiting on you */}
+      <ToConfirm />
 
       {/* Starting a bill is the first thing on the page; scanning/uploading leads. */}
       <StartBill usage={usage.data} />

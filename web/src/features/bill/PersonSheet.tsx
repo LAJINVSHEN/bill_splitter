@@ -3,7 +3,7 @@ import { Button } from '@/components/Button'
 import { EvenBadge, Money, Notice } from '@/components/Display'
 import { Dialog } from '@/components/Feedback'
 import { controlClass } from '@/components/Field'
-import { Icon } from '@/components/Icon'
+import { FullName } from '@/components/FullName'
 import { useSettle, useUnsettle } from '@/data/queries'
 import { cn } from '@/lib/cn'
 import { minorToInput, parseToMinor } from '@/lib/money'
@@ -14,29 +14,15 @@ import { MoneyInput } from './inputs'
  * One person on the bill: what they had, their cut of charges, and their payment.
  * Partial payments live here; "Mark paid" on the row covers the usual full amount.
  */
-export function PersonSheet({
-  bill,
-  person,
-  onClose,
-  onSendLink,
-  sending,
-  sendDisabled,
-}: {
-  bill: BillOut
-  person: SplitPersonOut | null
-  onClose: () => void
-  onSendLink: (p: SplitPersonOut) => void
-  sending: boolean
-  sendDisabled: boolean
-}) {
+export function PersonSheet({ bill, person, onClose }: { bill: BillOut; person: SplitPersonOut | null; onClose: () => void }) {
   return (
     <Dialog open={Boolean(person)} onClose={onClose} title={person ? (person.is_self ? 'You' : person.name) : ''}>
-      {person && <Body key={person.person_id} bill={bill} person={person} onSendLink={onSendLink} sending={sending} sendDisabled={sendDisabled} />}
+      {person && <Body key={person.person_id} bill={bill} person={person} />}
     </Dialog>
   )
 }
 
-function Body({ bill, person, onSendLink, sending, sendDisabled }: { bill: BillOut; person: SplitPersonOut; onSendLink: (p: SplitPersonOut) => void; sending: boolean; sendDisabled: boolean }) {
+function Body({ bill, person }: { bill: BillOut; person: SplitPersonOut }) {
   const settle = useSettle(bill.id)
   const unsettle = useUnsettle(bill.id)
   const eff = bill.split.effective_currency
@@ -51,7 +37,7 @@ function Body({ bill, person, onSendLink, sending, sendDisabled }: { bill: BillO
       <ul aria-label="What they had" className="border-t-[1.5px] border-ink">
         {person.items.map((it) => (
           <li key={it.item_id} className="flex min-h-11 items-center justify-between gap-3 border-b border-rule text-[16px]">
-            <span className="min-w-0 truncate">{it.name}</span>
+            <FullName text={it.name} />
             <Money minor={it.share_cents} currency={bill.currency} className="font-semibold" />
           </li>
         ))}
@@ -113,11 +99,6 @@ function Body({ bill, person, onSendLink, sending, sendDisabled }: { bill: BillO
                 Mark paid in full
               </Button>
             </>
-          )}
-          {!person.is_self && (
-            <Button variant="secondary" block icon={<Icon name="link" size={18} />} loading={sending} disabled={sendDisabled} onClick={() => onSendLink(person)}>
-              Send link
-            </Button>
           )}
         </div>
       )}

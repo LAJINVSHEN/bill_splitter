@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -21,6 +21,7 @@ class MeOut(OutputModel):
     payment_note: str | None  # e.g. "PayNow 9123 4567"; shown on share links when this user paid
     self_person_id: UUID
     created_at: datetime
+    open_claims_count: int  # friends' "I've paid" waiting for a Confirm
 
 
 def _blank_to_none(v: str | None) -> str | None:
@@ -95,3 +96,21 @@ class FxRateOut(OutputModel):
 
 class FxRateList(OutputModel):
     items: list[FxRateOut]
+
+
+class InboxClaim(OutputModel):
+    id: UUID
+    bill_id: UUID
+    bill_title: str
+    bill_date: date | None
+    person_id: UUID
+    person_name: str
+    color_seed: int
+    amount_cents: int
+    currency: str
+    expected_total_cents: int
+    created_at: datetime
+
+
+class InboxOut(OutputModel):
+    items: list[InboxClaim]

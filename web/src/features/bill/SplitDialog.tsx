@@ -19,14 +19,13 @@ import {
   type DialogMode,
   type DialogState,
 } from './assignment'
-import { DecimalInput, MoneyInput, Stepper } from './inputs'
+import { DecimalInput, MoneyInput } from './inputs'
 import { isPercentText } from './receiptDraft'
 
 const MODES: Array<{ mode: DialogMode; label: string }> = [
   { mode: 'equal', label: 'Equally' },
-  { mode: 'shares', label: 'Shares' },
-  { mode: 'percent', label: 'Percent' },
   { mode: 'exact', label: 'Exact' },
+  { mode: 'percent', label: 'Percent' },
 ]
 
 /** What each person would pay for this item in the dialog's current mode (null = not on it). */
@@ -37,17 +36,15 @@ function preview(state: DialogState, total: number, ids: UUID[]): Map<UUID, numb
     on.forEach((id) => out.set(id, state.exact[id] ?? 0))
     return out
   }
-  const weights = on.map((id) =>
-    state.mode === 'shares' ? (state.shares[id] ?? 0) : state.mode === 'percent' ? (percentToHundredths(state.percent[id] ?? '') ?? 0) : 1,
-  )
+  const weights = on.map((id) => (state.mode === 'percent' ? (percentToHundredths(state.percent[id] ?? '') ?? 0) : 1))
   if (!on.length || weights.every((w) => w === 0)) return out
   allocate(total, weights).forEach((v, i) => out.set(on[i] as UUID, v))
   return out
 }
 
 /**
- * Split one item another way: equally between some people, by shares, by percentages (must make
- * 100), or exact amounts (must make the item's price; the difference shows as you type).
+ * Split one item another way: equally between some people, exact amounts (must make the item's
+ * price; the difference shows as you type), or percentages (must make 100).
  */
 export function SplitDialog({
   item,
@@ -167,9 +164,6 @@ function SplitBody({
                   <Avatar name={p.name} seed={p.color_seed} />
                   <span className="min-w-0 flex-1 truncate text-[16px] font-semibold">{name}</span>
                 </span>
-              )}
-              {state.mode === 'shares' && (
-                <Stepper value={state.shares[id] ?? 0} label={name} onChange={(n) => setState((s) => ({ ...s, shares: { ...s.shares, [id]: n } }))} />
               )}
               {state.mode === 'percent' && (
                 <span className="relative w-[5.5rem] shrink-0">

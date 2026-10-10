@@ -6,14 +6,7 @@ import { Icon } from '@/components/Icon'
 import { longDate, peopleCount } from '@/features/home/format'
 import { cn } from '@/lib/cn'
 import type { PublicPerson, PublicShareOut } from '@/lib/types'
-import { billFractions, effectiveTotal, firstName, isConverted } from './logic'
-
-/** A stable hue per name: the public view has no ids or saved colours. */
-function nameHue(name: string): number {
-  let h = 0
-  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) % 360
-  return h
-}
+import { effectiveTotal, firstName, isConverted } from './logic'
 
 function title(share: PublicShareOut): string {
   return share.title?.trim() || share.merchant?.trim() || 'A shared bill'
@@ -99,29 +92,6 @@ function PayBlock({ share }: { share: PublicShareOut }) {
   )
 }
 
-function Dot({ tone }: { tone: 'warn' | 'ink' }) {
-  return <span aria-hidden="true" className={cn('h-2 w-2 shrink-0 rounded-full', tone === 'warn' ? 'bg-warn' : 'bg-ink')} />
-}
-
-function PaidState({ share, person }: { share: PublicShareOut; person: PublicPerson }) {
-  if (person.is_payer) return <p className="text-[15px] font-semibold">You paid this bill.</p>
-  if (person.settled) return <EvenBadge label="Paid back: you’re even" />
-  const total = effectiveTotal(share, person)
-  const partial = person.outstanding_cents > 0 && person.outstanding_cents < total
-  return (
-    <p className="flex items-center gap-2 text-[15px] font-semibold text-ink-2">
-      <Dot tone="warn" />
-      {partial ? (
-        <span>
-          <Money minor={person.outstanding_cents} currency={share.effective_currency} code className="text-ink" /> still to pay
-        </span>
-      ) : (
-        'Not marked as paid yet'
-      )}
-    </p>
-  )
-}
-
 /** The stub: white on mist, heavy outline, the = across the top (mockup E-Share). */
 function Stub({ children }: { children: ReactNode }) {
   return (
@@ -135,7 +105,7 @@ function Stub({ children }: { children: ReactNode }) {
   )
 }
 
-export function PersonShare({ share, person }: { share: PublicShareOut; person: PublicPerson }) {
+export function PersonShare({ share, person, footer, fractions }: { share: PublicShareOut; person: PublicPerson; footer?: ReactNode; fractions?: Map<string, string> }) {
   return (
     <>
       <Stub>
@@ -148,18 +118,26 @@ export function PersonShare({ share, person }: { share: PublicShareOut; person: 
             <ConversionLine share={share} minor={person.total_cents} />
           </div>
         </div>
-        <ItemLines share={share} person={person} />
+        {share.itemised !== false && <ItemLines share={share} person={person} fractions={fractions} />}
         {!person.is_payer && <PayBlock share={share} />}
       </Stub>
-      <div className="px-1">
-        <PaidState share={share} person={person} />
-      </div>
+      {footer}
     </>
   )
 }
 
-export function BillShare({ share }: { share: PublicShareOut }) {
-  const fractions = billFractions(share.people)
+/** One short status per person, the same words the host sees. */
+function statusOf(share: PublicShareOut, p: PublicPerson): { text: ReactNode; tone: 'warn' | 'even' | 'plain' } {
+  if (p.is_payer) return { text: 'Paid the bill', tone: 'plain' }
+  if (p.settled) return { text: 'Even', tone: 'even' }
+  if (p.claim?.status === 'claimed') return { text: 'Says paid', tone: 'plain' }
+  if (p.outstanding_cents < effectiveTotal(share, p))
+    return { text: <><Money minor={p.outstanding_cents} currency={share.effective_currency} /> left</>, tone: 'warn' }
+  return { text: 'Owes', tone: 'warn' }
+}
+
+/** Group link: everyone at the table, and "which one is you?" before anything else. */
+export function PickName({ share, onPick }: { share: PublicShareOut; onPick: (key: string) => void }) {
   const total = isConverted(share) && share.settle_grand_total_cents !== null ? share.settle_grand_total_cents : share.grand_total_cents
   return (
     <Stub>
@@ -171,36 +149,31 @@ export function BillShare({ share }: { share: PublicShareOut }) {
           <ConversionLine share={share} minor={share.grand_total_cents} />
         </div>
       </div>
-      <ul aria-label="Everyone’s share" className="border-t-[1.5px] border-ink">
-        {share.people.map((p, i) => (
-          <li key={`${p.name}-${i}`} className="border-b border-rule">
-            <details className="group">
-              <summary className="flex min-h-[56px] cursor-pointer list-none items-center gap-3 py-1.5 [&::-webkit-details-marker]:hidden">
-                <Avatar name={p.name} seed={nameHue(p.name)} size={30} />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate text-base font-semibold">{p.name}</span>
-                  {p.is_payer ? (
-                    <span className="text-[14px] font-semibold text-ink-2">Paid the bill</span>
-                  ) : p.settled ? (
-                    <span className="text-[14px] font-bold text-cobalt">Even</span>
-                  ) : p.outstanding_cents < effectiveTotal(share, p) ? (
-                    <span className="text-[14px] font-semibold text-warn">
-                      <Money minor={p.outstanding_cents} currency={share.effective_currency} /> left to pay
-                    </span>
-                  ) : (
-                    <span className="text-[14px] font-semibold text-warn">Owes {firstName(share.payer_name ?? 'the payer')}</span>
-                  )}
-                </span>
-                <Money minor={effectiveTotal(share, p)} currency={share.effective_currency} className="text-[17px] font-semibold" />
-                <Icon name="next" size={18} className="shrink-0 text-ink-2 transition-transform group-open:rotate-90" />
-              </summary>
-              <div className="pb-3 pl-[42px]">
-                <ItemLines share={share} person={p} fractions={fractions} />
-              </div>
-            </details>
-          </li>
-        ))}
-      </ul>
+      <section aria-labelledby="pick-title">
+        <h2 id="pick-title" className="display-sm mb-1.5 text-lg">Which one is you?</h2>
+        <ul className="border-t-[1.5px] border-ink">
+          {share.people.map((p) => {
+            const st = statusOf(share, p)
+            return (
+              <li key={p.key} className="border-b border-rule">
+                <button type="button" onClick={() => onPick(p.key)} className="flex min-h-[56px] w-full items-center gap-3 py-1.5 text-left hover:text-cobalt">
+                  <Avatar name={p.name} seed={p.color_seed} size={30} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-base font-semibold">{p.name}</span>
+                    {st.tone === 'even' ? (
+                      <EvenBadge />
+                    ) : (
+                      <span className={cn('text-[14px] font-semibold', st.tone === 'warn' ? 'text-warn' : 'text-ink-2')}>{st.text}</span>
+                    )}
+                  </span>
+                  <Money minor={effectiveTotal(share, p)} currency={share.effective_currency} className="text-[17px] font-semibold" />
+                  <Icon name="next" size={18} className="shrink-0 text-ink-2" />
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </section>
       <PayBlock share={share} />
     </Stub>
   )

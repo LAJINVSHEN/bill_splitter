@@ -10,6 +10,7 @@ from app.middleware.auth import CurrentUser
 from app.models import Person, Profile
 from app.repositories import bills as bills_repo
 from app.schemas.me import CurrencyBalance, MeOut, MePatch, OutstandingBill, PersonBalance, SummaryOut
+from app.services.claims import count_open
 from app.services.people import ensure_self
 from app.services.split_view import split_out
 
@@ -22,7 +23,8 @@ async def get_me(db: AsyncSession, user: CurrentUser) -> MeOut:
     return MeOut(id=profile.id, username=profile.username, display_name=profile.display_name, email=profile.email,
                  role=profile.role, must_change_password=profile.must_change_password,
                  monthly_scan_quota=profile.monthly_scan_quota, default_currency=profile.default_currency,
-                 payment_note=profile.payment_note, self_person_id=me.id, created_at=profile.created_at)
+                 payment_note=profile.payment_note, self_person_id=me.id, created_at=profile.created_at,
+                 open_claims_count=await count_open(db, user.id))
 
 
 async def patch_me(db: AsyncSession, user: CurrentUser, data: MePatch) -> MeOut:

@@ -4,7 +4,7 @@ import { ButtonLink } from '@/components/Button'
 import { Meter } from '@/components/Display'
 import { SlowNetworkBar } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
-import { useMe, useUsage } from '@/data/queries'
+import { useInbox, useMe, useUsage } from '@/data/queries'
 import { cn } from '@/lib/cn'
 
 interface NavItem {
@@ -12,12 +12,25 @@ interface NavItem {
   label: string
   mobileLabel?: string
   end?: boolean
+  /** things waiting on you there (friends' "I've paid" on Home) */
+  badge?: number
+}
+
+function Badge({ n }: { n?: number }) {
+  if (!n) return null
+  return (
+    <span className="num inline-grid h-5 min-w-5 place-items-center rounded-full bg-cobalt px-1.5 text-[12px] font-bold leading-none text-white">
+      {n}
+      <span className="sr-only"> to confirm</span>
+    </span>
+  )
 }
 
 function useNav(): NavItem[] {
   const me = useMe()
+  const inbox = useInbox(Boolean(me.data))
   const items: NavItem[] = [
-    { to: '/', label: 'Home', end: true },
+    { to: '/', label: 'Home', end: true, badge: inbox.data?.length },
     { to: '/bills', label: 'Bills' },
     { to: '/people', label: 'People' },
     { to: '/account', label: 'Account', mobileLabel: 'Me' },
@@ -51,6 +64,9 @@ function Sidebar() {
               <>
                 <EqualsMark size="xs" className={isActive ? '' : 'invisible'} />
                 {n.label}
+                <span className="ml-auto">
+                  <Badge n={n.badge} />
+                </span>
               </>
             )}
           </NavLink>
@@ -86,10 +102,11 @@ function BottomNav() {
           to={n.to}
           end={n.end}
           className={({ isActive }) =>
-            cn('flex h-16 items-center justify-center text-[15px]', isActive ? 'font-bold text-ink shadow-[inset_0_3px_0_var(--color-cobalt)]' : 'font-semibold text-ink-2')
+            cn('flex h-16 items-center justify-center gap-1.5 text-[15px]', isActive ? 'font-bold text-ink shadow-[inset_0_3px_0_var(--color-cobalt)]' : 'font-semibold text-ink-2')
           }
         >
           {n.mobileLabel ?? n.label}
+          <Badge n={n.badge} />
         </NavLink>
       ))}
     </nav>

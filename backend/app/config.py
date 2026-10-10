@@ -7,6 +7,7 @@ Values come from the process environment first, then the **repo-root** ``.env``
 
 from __future__ import annotations
 
+import hashlib
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
@@ -137,6 +138,9 @@ class Settings(BaseSettings):
     rate_limit_admin_create: str = "20/hour"
     max_json_body_bytes: int = 256 * 1024
     cron_secret: str = ""
+    rate_limit_claims: str = "10/minute"  # public "I've paid" per IP (plus a per-link daily cap in the DB)
+    # Share links are HMAC(secret, link id) so a link can be shown again; rotating it kills every derived link.
+    share_token_secret: str = ""
 
     # ------------------------------------------------------------------------
     @field_validator("cors_origins", mode="before")
@@ -165,6 +169,18 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.environment == "production"
+
+    @property
+    def share_secret(self) -> bytes:
+        """SHARE_TOKEN_SECRET, else a key derived from the service-role key (so a deploy without it still
+        works), else a fixed dev-only value. Production never uses the dev value."""
+        if self.share_token_secret:
+            return self.share_token_secret.encode()
+        if self.supabase_service_role_key:
+            return hashlib.sha256(b"even-share-v1:" + self.supabase_service_role_key.encode()).digest()
+        if self.is_production:
+            raise RuntimeError("SHARE_TOKEN_SECRET (or SUPABASE_SERVICE_ROLE_KEY) must be set in production")
+        return b"even-dev-share-secret"
 
     @property
     def async_database_url(self) -> str:
