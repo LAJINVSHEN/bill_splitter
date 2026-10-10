@@ -1,4 +1,4 @@
-# Deploy the SPA (web/) to Cloudflare Pages project `even` by Direct Upload (Wrangler).
+# Deploy the SPA (web/) to Cloudflare Pages project `even-split` by Direct Upload (Wrangler).
 # Cloudflare never builds from Git, so no Pages build minutes are used.
 # SPA routing: web/public/_redirects (`/* /index.html 200`); Pages also serves index.html for
 # unknown paths when there is no top-level 404.html. The smoke test checks a deep link.
@@ -6,7 +6,7 @@
 # Kill switch: push deploys run only when the repo variable CLOUD_DEPLOY_ENABLED == 'true'.
 # Manual runs ignore it but are limited to main (the `production` environment allows main only).
 #
-# Needs repo secrets VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_AUTH_EMAIL_DOMAIN,
+# Needs `production` environment secrets VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_AUTH_EMAIL_DOMAIN,
 # CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID; repo variables CLOUDFLARE_PROJECT_NAME, PAGES_URL.
 # VITE_AUTH_MODE is deliberately NOT set: production builds must use Supabase auth.
 name: Deploy frontend (Cloudflare Pages)

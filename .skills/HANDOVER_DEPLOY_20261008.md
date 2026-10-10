@@ -75,7 +75,7 @@ temporary password → forced change → "Scan or upload" → upload → people 
 
 | Area | Item | Status / suggestion |
 |---|---|---|
-| Prod | Google OAuth client | Owner step 1 above |
+| Prod | Google OAuth client | **Done 2026-10-08**: provider on, `supabase.py google` `[PASS]`, Google accepts the client + callback. A Gmail the admin never added now sees "hasn’t been added yet" on the login page instead of a silent failure |
 | Prod | Backups | **None** (Supabase Free; owner declined weekly encrypted dumps for now). Bills would be lost if the project were lost. Revisit before friends rely on history |
 | Prod | Monitoring | Only GitHub's workflow-failure emails (daily maintenance, deploy smoke) and keep-warm warnings. Optional free extras: an uptime monitor on `/api/health/ready`, Sentry free tier for errors |
 | Prod | Cold starts | ~1 min outside 11:30–14:00 / 18:00–23:00 SGT (shared Render hours) |
@@ -84,9 +84,10 @@ temporary password → forced change → "Scan or upload" → upload → people 
 | CI/CD | Scheduled workflows | GitHub disables them after 60 days without repo activity; re-enable in the Actions tab |
 | CI/CD | Prod E2E | The production run was an ad-hoc script (temporary account via the prod image). It isn't a workflow; CI E2E runs against a throwaway local stack |
 | Dev | Workflow | `main` is protected: branch → PR → green CI → merge (deploys on merge) |
-| Dev | Leftovers on disk (untracked/ignored) | `frontend/{dist,node_modules,public}`, `splitwise_package_for_ref/`, `backend/.env`. Safe to delete locally. The merged `production-rebuild` branch can be deleted |
+| Dev | Leftovers on disk (untracked/ignored) | Owner to delete locally: `frontend/` (152 MB build + node_modules), `splitwise_package_for_ref/`, empty `uploads/`, `__pycache__/`. `backend/.env` is read by nothing but holds the only copy of old Splitwise + OCR keys: keep or delete. Merged local branches deleted; remote `production-rebuild` + two Dec-2025 `claude/*` branches (legacy `frontend/` only) await owner deletion |
 | Ops | Account deletion | Live success verified; the retry path for a partial cleanup failure (`account_cleanup_pending`) was only tested offline |
 
 ## Not done / open
 
-- The `production-rebuild` branch is merged and can be deleted when convenient.
+- Remote branches `production-rebuild`, `claude/fix-frontend-backend-issues-…`, `claude/fix-mobile-blank-page-…` are obsolete; turn on *Settings → Automatically delete head branches*.
+- Extraction eval (benchmark set + deterministic accuracy report in /admin): design in `DESIGN_EXTRACTION_EVAL.md`, built in the next PR.

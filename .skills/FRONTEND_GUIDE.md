@@ -2,7 +2,7 @@
 
 Binding for every agent that builds UI. Read it with `.skills/BRIEF.md`, `.skills/HANDOVER_P1_BACKEND.md` §6 (API contract, including §11 for currency and dev auth), and `user_preference.md` §1 (anti-slop rules).
 
-The old `frontend/` directory is dead code. Never import from it, but read it for **behaviour** (its edge cases were hard-won, e.g. `frontend/src/components/BillSplitter/ReceiptValidationModal.tsx`, `ItemAssignment.tsx`, `SplitChoiceModal.tsx`, `hooks/useItemAssignment.ts`).
+The old `frontend/` app was removed in `c872c13` (see it with `git show c872c13^:frontend/...`). Never port code from it, but read it for **behaviour** (its edge cases were hard-won, e.g. `frontend/src/components/BillSplitter/ReceiptValidationModal.tsx`, `ItemAssignment.tsx`, `SplitChoiceModal.tsx`, `hooks/useItemAssignment.ts`).
 
 ## 1. Design source
 

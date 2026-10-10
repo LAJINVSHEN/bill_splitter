@@ -23,6 +23,7 @@ export default function Login() {
   const [params] = useSearchParams()
   const next = safeNext(params.get('next'))
   const problem = params.get('problem')
+  const notice = (problem && PROBLEMS[problem]) || authClient.oauthError()
 
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -66,9 +67,9 @@ export default function Login() {
       <Wordmark size="lg" />
       <p className="mt-3.5 text-[17px] text-ink-2">Scan it, split it, call it even.</p>
 
-      {problem && PROBLEMS[problem] && (
+      {notice && (
         <div className="mt-8">
-          <Notice tone="danger">{PROBLEMS[problem]}</Notice>
+          <Notice tone="danger">{notice}</Notice>
         </div>
       )}
 

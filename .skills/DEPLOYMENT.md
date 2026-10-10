@@ -29,7 +29,7 @@ Run from the repo root in **your own terminal**. Steps 1–2 and 9 are manual. E
 | 7 | `gh workflow run deploy-backend-render.yml --ref main` then `gh workflow run deploy-frontend-cloudflare.yml --ref main` | First deploys through the real pipeline (tests → deploy → smoke). Later pushes to `main` deploy automatically. |
 | 8 | `python scripts/provision/smoke.py --maintenance-guard` | Health, DB, CORS preflight from the Pages origin, Pages 200, SPA deep link 200. |
 | 9 | `python scripts/provision/bootstrap.py --username <admin>` | Builds the prod image and runs `app.cli ensure-bucket` + `bootstrap-admin` against production. It prints the **temporary password once, in your terminal**. Sign in at the Pages URL and change it. |
-| 10 | *(optional)* Google sign-in | Create a Google OAuth client (Web) with the origins and callback that `python scripts/provision/supabase.py google` prints. Put `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env` and re-run that command. Pre-create each Google user in `/admin` (login = Google, real Gmail). Signups stay disabled, so nobody else gets in. |
+| 10 | Google sign-in — **done 2026-10-08** (`supabase.py google` → `[PASS]`) | Create a Google OAuth client (Web) with the origins and callback that `python scripts/provision/supabase.py google` prints. Put `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` in `.env` and re-run that command. Pre-create each Google user in `/admin` (login = Google, real Gmail). Signups stay disabled, so nobody else gets in. |
 
 Steps 3–6 in one go: `python scripts/provision/all.py --enable-deploy` (stops at the first failure; re-run after fixing).
 
@@ -77,7 +77,7 @@ Render also gets fixed values: `ENVIRONMENT=production`, `SUPABASE_ADMIN_BACKEND
 
 | File | Trigger | Does |
 |---|---|---|
-| `ci.yml` | PR, push to `main`, manual | backend: Alembic up/down/up + pytest on Postgres 16 + prod image build · frontend: Node 24, `npm ci`, `typecheck`, `build`, `test` in `web/` · E2E placeholder (commented) |
+| `ci.yml` | PR, push to `main`, manual | backend: Alembic up/down/up + pytest on Postgres 16 + prod image build · frontend: Node 24, `npm ci`, `typecheck`, `lint`, `build`, `test` in `web/` · E2E: Playwright (desktop + Pixel 5) against a throwaway local stack (Postgres + API in compose, fake auth) |
 | `deploy-backend-render.yml` | push to `main` on `backend/**`, `shared/**`, `render.yaml`; manual | migrations + pytest on Postgres 16 → `render.py deploy --commit $GITHUB_SHA --wait` → `smoke.py --skip-pages --maintenance-guard`. Concurrency `render-backend-production` (cancel in progress). 30-min timeout |
 | `deploy-frontend-cloudflare.yml` | push to `main` on `web/**`, `shared/**`; manual | fails fast on missing `VITE_*`/Cloudflare secrets → `npm ci`, tests, build → checks `dist/_redirects` → `wrangler pages deploy web/dist --branch=main` (`cloudflare/wrangler-action@v4`) → smoke. Concurrency `cloudflare-pages-production`. `VITE_AUTH_MODE` is never set |
 | `cron.yml` | `30-59/10 3`, `*/10 4-5`, `*/10 10-14` UTC (11:30–14:00 + 18:00–23:00 SGT), `23 4 * * *` (12:23 SGT), manual | keep-warm `GET /api/health`, which only warns on failure · daily `POST /api/internal/maintenance` (warm-up 6×20 s, 3 attempts, prints status + counts only). `cancel-in-progress: false` |
@@ -88,7 +88,7 @@ Every job has `timeout-minutes` and `permissions: contents: read`. **`main` is p
 
 - **Stop deploys:** `python scripts/provision/github.py --disable-deploy` (or `gh variable set CLOUD_DEPLOY_ENABLED --body false`). Pushes then skip both deploy workflows. With auto-deploy off on Render and no Git build on Pages, nothing else deploys.
 - **Backend rollback:** Render dashboard → `even-api` → Events → pick the last good deploy → *Rollback*. Or revert the commit on `main`. Code rollback doesn't undo migrations, so keep migrations backward-compatible (expand, then contract).
-- **Frontend rollback:** Cloudflare dashboard → Workers & Pages → `even` → Deployments → last good one → *Rollback to this deployment* (instant).
+- **Frontend rollback:** Cloudflare dashboard → Workers & Pages → `even-split` → Deployments → last good one → *Rollback to this deployment* (instant).
 - **Pause everything:** suspend the Render service in the dashboard, then `gh workflow disable cron.yml`. Supabase will auto-pause after 7 idle days. Restore it from its dashboard.
 - **Rotate a secret:** change it at the provider, update `.env` / delete the key from `.env.production.local`, re-run the script that owns it (`supabase.py --reset-db-password`, `render.py`, `github.py`), then `render.py deploy --wait`.
 
