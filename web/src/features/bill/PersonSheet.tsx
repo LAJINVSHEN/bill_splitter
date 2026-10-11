@@ -8,11 +8,12 @@ import { useSettle, useUnsettle } from '@/data/queries'
 import { cn } from '@/lib/cn'
 import { minorToInput, parseToMinor } from '@/lib/money'
 import type { BillOut, SplitPersonOut } from '@/lib/types'
+import { paidByMe } from './flow'
 import { MoneyInput } from './inputs'
 
 /**
  * One person on the bill: what they had, their cut of charges, and their payment.
- * Partial payments live here; "Mark paid" on the row covers the usual full amount.
+ * Partial payments live here; the Paid / Received toggle on the row covers the usual full amount.
  */
 export function PersonSheet({ bill, person, onClose }: { bill: BillOut; person: SplitPersonOut | null; onClose: () => void }) {
   return (
@@ -28,6 +29,7 @@ function Body({ bill, person }: { bill: BillOut; person: SplitPersonOut }) {
   const eff = bill.split.effective_currency
   const converted = Boolean(bill.split.settle_currency)
   const paid = person.settled_amount_cents ?? 0
+  const verb = paidByMe(bill) ? 'Received' : 'Paid' // money coming to you is received
   const [amount, setAmount] = useState(minorToInput(person.outstanding_cents || person.effective_total_cents, eff))
   const minor = parseToMinor(amount, eff)
   const error = settle.error ?? unsettle.error
@@ -70,7 +72,7 @@ function Body({ bill, person }: { bill: BillOut; person: SplitPersonOut }) {
                 <EvenBadge />
               ) : (
                 <span className="text-[16px] font-semibold">
-                  Paid <Money minor={paid} currency={eff} /> · <span className="text-warn"><Money minor={person.outstanding_cents} currency={eff} /> left</span>
+                  {verb} <Money minor={paid} currency={eff} /> · <span className="text-warn"><Money minor={person.outstanding_cents} currency={eff} /> left</span>
                 </span>
               )}
               <Button variant="quiet" loading={unsettle.isPending} onClick={() => unsettle.mutate(person.person_id)}>
@@ -88,7 +90,7 @@ function Body({ bill, person }: { bill: BillOut; person: SplitPersonOut }) {
                 }}
               >
                 <label className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <span className="text-[15px] font-semibold">{person.settled_at ? 'Paid more' : 'Paid'} ({eff})</span>
+                  <span className="text-[15px] font-semibold">{person.settled_at ? `${verb} more` : verb} ({eff})</span>
                   <MoneyInput currency={eff} value={amount} onChange={setAmount} className={cn(controlClass, 'text-right')} />
                 </label>
                 <Button type="submit" variant="secondary" loading={settle.isPending && settle.variables?.amount_cents !== undefined} disabled={minor === null || minor <= 0}>
@@ -96,7 +98,7 @@ function Body({ bill, person }: { bill: BillOut; person: SplitPersonOut }) {
                 </Button>
               </form>
               <Button block loading={settle.isPending && settle.variables?.amount_cents === undefined} onClick={() => settle.mutate({ personId: person.person_id })}>
-                Mark paid in full
+                Mark {verb.toLowerCase()} in full
               </Button>
             </>
           )}

@@ -3,21 +3,36 @@ import { expectNoHorizontalOverflow, signIn } from './support'
 
 // Read-only checks against the dev seed (george + maya, arjun, lena, tomas; 3 bills). Nothing here mutates data.
 
-test('home: start a bill first, then drafts and recent bills; balances live on People', async ({ page }) => {
+test('home: start a bill first, then your balance, drafts and recent bills', async ({ page }) => {
   await page.goto('/')
   const main = page.locator('main')
   const scan = main.getByRole('link', { name: /Scan or upload a receipt/ })
   await expect(scan).toHaveAttribute('href', '/bills/new?mode=scan')
-  await expect(main.getByText('Owed to you')).toHaveCount(0)
+  // george paid the seeded bills, so the band says what he's owed (one line per currency) and leads to People
+  const balance = main.getByRole('region', { name: 'Your balance' })
+  await expect(balance.getByText('You’re owed').first()).toBeVisible()
+  await expect(balance.getByRole('link', { name: /Settle up/ })).toHaveAttribute('href', '/people')
   await expect(main.getByRole('link', { name: /Team lunch/ })).toBeVisible()
   await expect(main.getByText('Saturday hotpot').filter({ visible: true })).toBeVisible()
   await expectNoHorizontalOverflow(page)
 })
 
-test('people: each person with their open balance', async ({ page }) => {
+test('people: each person with their open balance, simplified or as the bills say', async ({ page }) => {
   await page.goto('/people')
-  const lena = page.locator('main').getByRole('list', { name: 'Saved people' }).getByRole('listitem').filter({ hasText: 'Lena Okafor' })
-  await expect(lena.getByText(/owes you/).filter({ visible: true })).toBeVisible()
+  const main = page.locator('main')
+  // Simplified (the default) nets debts across bills, so what any one person sees depends on
+  // every bill; the original view is stable: Lena owes George on the seeded hotpot.
+  await expect(main.getByText(/simplified to|to settle/)).toBeVisible()
+  await main.getByRole('button', { name: 'Original', exact: true }).click()
+  await expect(main.getByText(/debts?, as the bills say/)).toBeVisible()
+  const lena = main.getByRole('list', { name: 'Saved people' }).getByRole('listitem').filter({ hasText: 'Lena Okafor' })
+  // a balance opens its breakdown: the bills behind it, and Paid
+  await lena.getByRole('button', { name: /to/ }).filter({ visible: true }).first().click()
+  const sheet = page.getByRole('dialog', { name: 'Lena Okafor' })
+  await expect(sheet.getByRole('heading', { name: 'From the bills' })).toBeVisible()
+  await expect(sheet.getByRole('link', { name: /Saturday hotpot/ })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Lena Okafor pays you', pressed: false })).toBeVisible()
+  await sheet.getByRole('button', { name: 'Close' }).click()
   await expectNoHorizontalOverflow(page)
 })
 

@@ -190,14 +190,8 @@ async def delete_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, servic
     await _delete_bills(db, user, services, [owned], permanent=permanent)
 
 
-async def clear_bills(db: AsyncSession, user: CurrentUser, services: Services, *, permanent: bool = False,
-                      person_id: UUID | None = None) -> None:
-    stmt = select(Bill.id).where(Bill.owner_id == user.id)
-    if person_id is not None:
-        if await people_repo.get_person(db, user.id, person_id) is None:
-            raise NotFound("Person")
-        stmt = stmt.where(Bill.id.in_(people_repo.referencing_bill_ids([person_id])))
-    ids = list((await db.scalars(stmt)).all())
+async def clear_bills(db: AsyncSession, user: CurrentUser, services: Services, *, permanent: bool = False) -> None:
+    ids = list((await db.scalars(select(Bill.id).where(Bill.owner_id == user.id))).all())
     await _delete_bills(db, user, services, ids, permanent=permanent)
 
 

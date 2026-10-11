@@ -226,31 +226,23 @@ describe('owner deletion controls', () => {
     expect(deletions()).toEqual([['/people?permanent=true&confirmation=DELETE%20ALL%20PEOPLE', { method: 'DELETE' }]])
   })
 
-  it('requires a second confirmation before purging referenced bills, then retries the person', async () => {
+  it('never deletes bills: someone on a bill can only be archived', async () => {
     const original = vi.mocked(api).getMockImplementation()!
-    let referenced = true
     vi.mocked(api).mockImplementation(async (path, opts) => {
-      if (opts?.method === 'DELETE' && path.startsWith('/bills?')) referenced = false
-      if (opts?.method === 'DELETE' && path.startsWith('/people/') && referenced) {
-        throw new ApiError(409, 'person_referenced', 'Still used by a bill. Archive or delete history first.')
+      if (opts?.method === 'DELETE' && path.startsWith('/people/')) {
+        throw new ApiError(409, 'person_referenced', "People on a bill can't be deleted.")
       }
       return original(path, opts)
     })
     render(createElement(PeoplePage), { wrapper: queryWrapper('/people') })
     fireEvent.click(await screen.findByRole('button', { name: 'Delete Maya' }))
     fireEvent.click(screen.getByRole('button', { name: 'Delete person' }))
-    expect(await screen.findByRole('alert')).toHaveTextContent('Still used by a bill.')
-    expect(deletions()).toHaveLength(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Delete associated bills first' }))
-    const confirm = screen.getByRole('button', { name: 'Delete bills & people' })
-    expect(confirm).toBeDisabled()
-    expect(screen.getByText(/permanently erased for all its participants/)).toBeInTheDocument()
-    fireEvent.change(screen.getByLabelText('Type DELETE ASSOCIATED BILLS to confirm'), { target: { value: 'DELETE ASSOCIATED BILLS' } })
-    fireEvent.click(confirm)
+    expect(await screen.findByRole('heading', { name: 'Maya is on bills' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /bills first|Delete bills/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Archive instead' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(deletions().map(([path]) => path)).toEqual([
-      '/people/maya?permanent=true', '/bills?permanent=true&confirmation=DELETE+ASSOCIATED+BILLS&person_id=maya', '/people/maya?permanent=true',
-    ])
+    expect(api).toHaveBeenCalledWith('/people/maya', { method: 'PATCH', body: { archived: true } })
+    expect(deletions().map(([path]) => path)).toEqual(['/people/maya?permanent=true']) // and no /bills deletion
   })
 
   it('offers archive without changing any referenced bill', async () => {

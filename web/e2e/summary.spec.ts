@@ -64,8 +64,10 @@ test('summary controls meet coarse touch sizes and ledger fits small and wide vi
   for (const width of widths) {
     await page.setViewportSize({ width, height: coarse ? 844 : 900 })
     const list = page.getByRole('list', { name: 'People', exact: true })
-    for (const name of ['You', 'Maya', 'Tom', 'Mark paid', 'Undo']) {
-      const control = list.getByRole('button', { name, exact: true })
+    // the toggle (you paid, so friends' money is Received), off and on, plus the people buttons
+    const controls: Array<[string, boolean | undefined]> = [['You', undefined], ['Maya', undefined], ['Tom', undefined], ['Received', false], ['Received', true]]
+    for (const [name, pressed] of controls) {
+      const control = list.getByRole('button', { name, exact: true, pressed })
       await expect(control).toBeVisible()
       if (coarse) {
         const bounds = await control.boundingBox()

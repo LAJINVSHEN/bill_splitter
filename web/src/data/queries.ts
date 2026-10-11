@@ -14,6 +14,9 @@ import type {
   Page,
   PersonOut,
   PublicShareOut,
+  SettlePiece,
+  SettleUpOut,
+  SettleView,
   EnsuredLink,
   InboxClaim,
   SplitMode,
@@ -38,6 +41,8 @@ export const qk = {
   adminSettings: ['admin', 'settings'] as const,
   publicShare: (token: string) => ['public-share', token] as const,
   inbox: ['me', 'claims'] as const,
+  // under `summary`, so everything that refreshes balances refreshes the plan too
+  settleUp: (combine: string | null) => ['me', 'summary', 'settle-up', combine ?? 'apart'] as const,
 }
 
 const TERMINAL: JobStatus[] = ['succeeded', 'needs_review', 'failed', 'cancelled']
@@ -47,6 +52,60 @@ export const isJobActive = (s: JobStatus | undefined | null) => Boolean(s) && !T
 export const useMe = (enabled = true) => useQuery({ queryKey: qk.me, queryFn: () => api<MeOut>('/me'), enabled, staleTime: 60_000 })
 export const useUsage = () => useQuery({ queryKey: qk.usage, queryFn: () => api<UsageOut>('/me/usage') })
 export const useSummary = () => useQuery({ queryKey: qk.summary, queryFn: () => api<SummaryOut>('/me/summary') })
+
+// ---- settle up ---------------------------------------------------------------------------------
+/** Open debts across bills: as the bills say and as the fewest payments. `combine` merges currencies. */
+export const useSettleUp = (combine: string | null) =>
+  useQuery({
+    queryKey: qk.settleUp(combine),
+    queryFn: () => api<SettleUpOut>(`/me/settle-up${combine ? `?combine=${combine}` : ''}`),
+    placeholderData: keepPreviousData,
+  })
+
+export interface SettleRecord {
+  view: SettleView | 'cancel_out'
+  combine: string | null
+  currency: string
+  from_person_id?: UUID
+  to_person_id?: UUID
+  amount_cents?: number
+}
+
+/** Mark one row paid. It writes settlements on bills, so everything derived from bills refreshes. */
+export function useRecordSettleUp() {
+  const qc = useQueryClient()
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: qk.summary })
+    void qc.invalidateQueries({ queryKey: qk.billsAll })
+    void qc.invalidateQueries({ queryKey: ['bill'] })
+  }
+  return useMutation({
+    mutationFn: (body: SettleRecord) => api<SettleUpOut>('/me/settle-up/payments', { method: 'POST', body }),
+    onSuccess: (out, body) => {
+      qc.setQueryData(qk.settleUp(body.combine), out)
+      refresh()
+    },
+    onError: refresh, // a stale plan (409) re-fetches the latest
+  })
+}
+
+/** Take back a recorded row: subtracts exactly the pieces it marked paid. */
+export function useUndoSettleUp() {
+  const qc = useQueryClient()
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: qk.summary })
+    void qc.invalidateQueries({ queryKey: qk.billsAll })
+    void qc.invalidateQueries({ queryKey: ['bill'] })
+  }
+  return useMutation({
+    mutationFn: (body: { combine: string | null; pieces: SettlePiece[] }) => api<SettleUpOut>('/me/settle-up/undo', { method: 'POST', body }),
+    onSuccess: (out, body) => {
+      qc.setQueryData(qk.settleUp(body.combine), out)
+      refresh()
+    },
+    onError: refresh,
+  })
+}
 
 export function useUpdateMe() {
   const qc = useQueryClient()
@@ -217,14 +276,9 @@ export function useDeleteBill() {
 export function useClearBills() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ personId, permanent = true }: { personId?: UUID; permanent?: boolean }) => {
-      const params = new URLSearchParams({
-        permanent: String(permanent),
-        confirmation: personId ? 'DELETE ASSOCIATED BILLS' : 'DELETE ALL BILLS',
-      })
-      if (personId) params.set('person_id', personId)
-      return api<void>(`/bills?${params}`, { method: 'DELETE' })
-    },
+    // every bill; there is deliberately no "bills of one person" variant
+    mutationFn: ({ permanent = true }: { permanent?: boolean }) =>
+      api<void>(`/bills?${new URLSearchParams({ permanent: String(permanent), confirmation: 'DELETE ALL BILLS' })}`, { method: 'DELETE' }),
     onSuccess: async () => {
       await Promise.all([
         qc.cancelQueries({ queryKey: ['bill'] }),

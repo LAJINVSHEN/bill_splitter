@@ -53,12 +53,11 @@ async def create_bill(data: BillCreate, user: CurrentUserDep, db: DB) -> BillOut
 
 @router.delete("", status_code=204)
 async def clear_bills(user: CurrentUserDep, db: DB, services: ServicesDep,
-                      confirmation: Annotated[Literal["DELETE ALL BILLS", "DELETE ASSOCIATED BILLS"], Query()],
-                      permanent: bool = False, person_id: UUID | None = None) -> Response:
-    expected = "DELETE ASSOCIATED BILLS" if person_id is not None else "DELETE ALL BILLS"
-    if confirmation != expected:
-        raise BadRequest("confirmation_required", f"Confirm with {expected}.")
-    await svc.clear_bills(db, user, services, permanent=permanent, person_id=person_id)
+                      confirmation: Annotated[Literal["DELETE ALL BILLS"], Query()],
+                      permanent: bool = False) -> Response:
+    """Every bill. There is deliberately no "one person's bills" variant: people on bills are
+    archived, never deleted along with the bills."""
+    await svc.clear_bills(db, user, services, permanent=permanent)
     return Response(status_code=204)
 
 

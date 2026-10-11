@@ -77,9 +77,8 @@ async def archive_person(db: AsyncSession, owner_id: UUID, person_id: UUID) -> N
 
 
 def _referenced(count: int | None = None) -> Conflict:
-    return Conflict("person_referenced", "Saved people are still used by bills, including deleted bills. "
-                    "Permanently delete their associated bills first, or archive the people to keep history.",
-                    bill_count=count)
+    return Conflict("person_referenced", "People on a bill can't be deleted, so no bill loses who was there. "
+                    "Archive them instead: old bills keep their name.", bill_count=count)
 
 
 async def delete_person(db: AsyncSession, owner_id: UUID, person_id: UUID) -> None:

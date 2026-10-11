@@ -45,9 +45,13 @@ async def list_bills(db: AsyncSession, owner_id: UUID, *, statuses: list[str] | 
     return list((await db.scalars(stmt)).all())
 
 
-async def bills_with_open_balances(db: AsyncSession, owner_id: UUID) -> list[Bill]:
-    stmt = _full(select(Bill).where(Bill.owner_id == owner_id, Bill.deleted_at.is_(None),
-                                   Bill.status == "complete").order_by(Bill.created_at.desc(), Bill.id.desc()))
+async def bills_with_open_balances(db: AsyncSession, owner_id: UUID, *, for_update: bool = False) -> list[Bill]:
+    stmt = select(Bill).where(Bill.owner_id == owner_id, Bill.deleted_at.is_(None),
+                              Bill.status == "complete").order_by(Bill.created_at.desc(), Bill.id.desc())
+    if for_update:
+        stmt = _full(stmt.with_for_update()).execution_options(populate_existing=True)
+    else:
+        stmt = _full(stmt)
     return list((await db.scalars(stmt)).all())
 
 
