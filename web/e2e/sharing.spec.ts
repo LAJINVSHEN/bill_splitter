@@ -41,7 +41,7 @@ test('share → friend says paid → owner confirms → friend is even', async (
     const row = page.getByRole('list', { name: 'People', exact: true }).getByRole('listitem').filter({ hasText: 'Maya' })
     await expect(row.getByText(/Says paid/)).toBeVisible()
     await row.getByRole('button', { name: 'Confirm', exact: true }).click()
-    await expect(row.getByText('Even', { exact: true })).toBeVisible()
+    await expect(row.getByRole('button', { name: 'Received', exact: true, pressed: true })).toBeVisible() // confirmed: the toggle is on
 
     await friend.reload()
     await expect(friend.getByText(/You’re even with George/)).toBeVisible()

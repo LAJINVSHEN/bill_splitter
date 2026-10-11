@@ -2,17 +2,30 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Response
+from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.middleware.auth import CurrentUserDep, PendingUserDep
 from app.core.currencies import normalize_code
 from app.errors import BadRequest
-from app.schemas.me import FxRateIn, FxRateList, FxRateOut, InboxOut, MeOut, MePatch, SummaryOut, UsageOut
+from app.schemas.me import (
+    FxRateIn,
+    FxRateList,
+    FxRateOut,
+    InboxOut,
+    MeOut,
+    MePatch,
+    SettleRecordIn,
+    SettleUndoIn,
+    SettleUpOut,
+    SummaryOut,
+    UsageOut,
+)
 from app.services import claims as claims_svc
 from app.services import fx
 from app.services import me as svc
+from app.services import settle_up as settle_svc
 from app.services.container import ServicesDep
 from app.services.usage import my_usage
 
@@ -61,6 +74,28 @@ def _code(value: str) -> str:
 
 
 CodePath = Annotated[str, Path(min_length=3, max_length=3)]
+
+
+@router.get("/settle-up", response_model=SettleUpOut)
+async def settle_up(user: CurrentUserDep, db: DB,
+                    combine: Annotated[str | None, Query(min_length=3, max_length=3, description=(
+                        "Merge every currency into this one with the saved rates"))] = None) -> SettleUpOut:
+    """Open debts across complete bills: as the bills say (``original``) and as the fewest
+    payments (``simplified``), per currency unless ``combine`` merges them."""
+    return await settle_svc.settle_up(db, user, _code(combine) if combine else None)
+
+
+@router.post("/settle-up/payments", response_model=SettleUpOut)
+async def record_settle_up(data: SettleRecordIn, user: CurrentUserDep, db: DB) -> SettleUpOut:
+    """Mark one row of the plan paid; returns the recomputed plan (409 ``plan_changed`` if stale)
+    and ``applied``, what it marked paid, for an undo."""
+    return await settle_svc.record(db, user, data)
+
+
+@router.post("/settle-up/undo", response_model=SettleUpOut)
+async def undo_settle_up(data: SettleUndoIn, user: CurrentUserDep, db: DB) -> SettleUpOut:
+    """Take back a recorded row (the ``applied`` pieces it returned)."""
+    return await settle_svc.undo(db, user, data)
 
 
 @router.get("/fx-rates", response_model=FxRateList)

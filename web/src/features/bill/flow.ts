@@ -102,3 +102,6 @@ export function quotaMessage(q: QuotaInfo): string {
 }
 
 export const isUUID = (s: string | undefined): s is UUID => Boolean(s && /^[0-9a-f-]{36}$/i.test(s))
+
+/** You paid this bill, so what friends send is money you *receive* ("Received", not "Paid"). */
+export const paidByMe = (bill: Pick<BillOut, 'split'>) => bill.split.people.some((p) => p.is_payer && p.is_self)

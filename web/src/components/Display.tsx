@@ -100,10 +100,12 @@ export function Notice({ tone = 'warn', children, action }: { tone?: 'warn' | 'd
   )
 }
 
-export function PageTitle({ children, sub, back, actions }: {
+export function PageTitle({ children, sub, back, actions, compact = false }: {
   children: ReactNode
   sub?: ReactNode
   back?: { to: string; label: string }
+  /** a detail page (one bill): a calmer title so the content leads */
+  compact?: boolean
   /** page-level controls; sit on the title's baseline from md up (desktop toolbar row) */
   actions?: ReactNode
 }) {
@@ -116,7 +118,7 @@ export function PageTitle({ children, sub, back, actions }: {
             {back.label}
           </Link>
         )}
-        <h1 className="display break-words text-[34px] md:text-[40px]">{children}</h1>
+        <h1 className={cn('display break-words', compact ? 'text-[28px] leading-[1.15] md:text-[32px]' : 'text-[34px] md:text-[40px]')}>{children}</h1>
         {sub && <p className="mt-1.5 text-[15px] text-ink-2">{sub}</p>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-x-4 gap-y-2 md:justify-end">{actions}</div>}

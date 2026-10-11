@@ -70,6 +70,55 @@ export interface SummaryOut {
   }>
 }
 
+export interface SettlePerson {
+  person_id: UUID
+  name: string
+  color_seed: number
+  is_self: boolean
+}
+
+export interface SettlePayment {
+  from_person: SettlePerson
+  to_person: SettlePerson
+  amount_cents: Minor
+  bill_count: number
+}
+
+export interface SettleDebt {
+  bill_id: UUID
+  title: string | null
+  bill_date: string | null
+  from_person: SettlePerson
+  to_person: SettlePerson
+  amount_cents: Minor // the group's currency
+  currency: string // the bill's own currency
+  original_cents: Minor
+}
+
+export interface SettleGroup {
+  currency: string
+  original: SettlePayment[]
+  simplified: SettlePayment[]
+  cancel_out: SettlePerson[]
+  debts: SettleDebt[] // newest bill first
+}
+
+export interface SettlePiece {
+  bill_id: UUID
+  person_id: UUID
+  amount_cents: Minor // the bill's own currency
+}
+
+export interface SettleUpOut {
+  combined_into: string | null
+  currencies: string[]
+  missing_rates: string[]
+  groups: SettleGroup[]
+  applied?: SettlePiece[] // after recording a row: what it marked paid (send back to undo)
+}
+
+export type SettleView = 'original' | 'simplified'
+
 export interface FxRateOut {
   base: string
   quote: string

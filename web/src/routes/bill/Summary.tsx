@@ -2,21 +2,24 @@ import { useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { EqualsMark } from '@/components/Brand'
 import { Button, ButtonLink } from '@/components/Button'
-import { Avatar, EvenBadge, HeroAmount, Money, Notice, PageTitle, SectionTitle } from '@/components/Display'
+import { Avatar, EvenBadge, Money, Notice, PageTitle, SectionTitle } from '@/components/Display'
 import { Dialog, useToast } from '@/components/Feedback'
 import { SelectField } from '@/components/Field'
 import { FullName } from '@/components/FullName'
 import { Icon } from '@/components/Icon'
+import { PaidToggle } from '@/components/PaidToggle'
 import { useConfirmAll, useConfirmClaim, useDeleteBill, useMe, usePatchBill, useRejectClaim, useSettle, useUnsettle } from '@/data/queries'
-import { cn } from '@/lib/cn'
 import type { BillOut, ClaimOut, SplitPersonOut } from '@/lib/types'
 import { ConvertDialog } from '@/features/bill/ConvertDialog'
-import { billTitle, stepPath } from '@/features/bill/flow'
+import { billTitle, paidByMe, stepPath } from '@/features/bill/flow'
 import { BillGate } from '@/features/bill/parts'
 import { DeleteBillNote } from '@/features/bill/DeleteBillNote'
 import { PersonSheet } from '@/features/bill/PersonSheet'
 import { trimDecimal } from '@/features/bill/receiptDraft'
 import { TotalsBlock } from '@/features/bill/TotalsBlock'
+import { longDate, peopleCount } from '@/features/home/format'
+import { BillBalance } from '@/features/settle/YourBalance'
+import { formatAmount } from '@/lib/money'
 import { ShareDialog } from '@/features/share/ShareDialog'
 
 export default function SummaryPage() {
@@ -57,6 +60,13 @@ function Summary({ bill }: { bill: BillOut }) {
     (rejectClaim.isPending && rejectClaim.variables === claimOf(id)?.id)
   const fail = (err: Error) => toast(err.message, 'danger')
   const itemsSum = bill.items.reduce((a, i) => a + i.total_price_cents, 0)
+  const payer = split.people.find((p) => p.is_payer)
+  const meta = [
+    longDate(bill.bill_date),
+    bill.merchant && bill.merchant !== title ? bill.merchant : null,
+    peopleCount(split.people.length),
+    payer ? (payer.is_self ? 'you paid' : `${payer.name} paid`) : null,
+  ].filter(Boolean).join(' · ')
 
   const remove = () =>
     del.mutate(bill.id, {
@@ -142,10 +152,22 @@ function Summary({ bill }: { bill: BillOut }) {
   return (
     <div className="flex flex-col gap-6 pb-6 lg:grid lg:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] lg:gap-x-[var(--app-gutter)]">
       <div className="flex min-w-0 flex-col gap-5">
-        {/* The bill's name and its total, nothing else: name as the title, total as the figure. */}
-        <PageTitle back={{ to: '/bills', label: 'Bills' }} actions={<HeroAmount minor={split.grand_total_cents} currency={bill.currency} />}>
+        {/* Name, a quiet meta line and the total; then the one line about you, which is what you came to check. */}
+        <PageTitle
+          compact
+          back={{ to: '/bills', label: 'Bills' }}
+          sub={meta}
+          actions={
+            <p className="flex items-baseline gap-1.5" aria-label={`Total ${bill.currency} ${formatAmount(split.grand_total_cents, bill.currency)}`}>
+              <span className="text-[15px] font-semibold text-ink-2">Total</span>
+              <span className="num text-[15px] font-semibold text-ink-2">{bill.currency}</span>
+              <span className="num text-[26px] font-bold leading-none">{formatAmount(split.grand_total_cents, bill.currency)}</span>
+            </p>
+          }
+        >
           {title}
         </PageTitle>
+        <BillBalance bill={bill} />
         {showConversion && conversion}
 
         {claims.length > 1 && (
@@ -295,6 +317,7 @@ function PersonRow({
   onUndo: () => void
 }) {
   const eff = bill.split.effective_currency
+  const received = paidByMe(bill)
   const partial = Boolean(p.settled_at) && p.outstanding_cents > 0
   const even = !p.is_payer && p.outstanding_cents === 0
   return (
@@ -333,14 +356,8 @@ function PersonRow({
         {p.is_payer ? (
           p.is_self ? <span className="font-semibold text-ink-2">your share</span> : null
         ) : even ? (
-          <>
-            <EvenBadge />
-            {p.settled_at && (
-              <button type="button" onClick={onUndo} disabled={busy} className={cn('min-h-11 min-w-11 font-bold text-cobalt hover:text-cobalt-ink', busy && 'text-ink-2')}>
-                Undo
-              </button>
-            )}
-          </>
+          // paid → the toggle is on; tap again to take it back
+          p.settled_at ? <PaidToggle paid received={received} busy={busy} onToggle={onUndo} /> : <EvenBadge />
         ) : claim ? (
           <>
             <button type="button" onClick={() => onReject(claim)} disabled={busy} className="min-h-11 min-w-11 font-bold text-ink hover:text-cobalt disabled:text-ink-2">
@@ -352,10 +369,7 @@ function PersonRow({
             </button>
           </>
         ) : (
-          <button type="button" onClick={onSettle} disabled={busy} className="flex min-h-11 min-w-11 items-center gap-1.5 font-bold text-cobalt hover:text-cobalt-ink disabled:text-ink-2">
-            {busy && <EqualsMark size="xs" moving />}
-            Mark paid
-          </button>
+          <PaidToggle paid={false} received={received} busy={busy} onToggle={onSettle} />
         )}
       </span>
     </li>

@@ -167,7 +167,7 @@ async def test_permanent_delete_erases_ocr_cache_unless_a_live_bill_shares_the_p
                          id=user.id) == [(0,)]
 
 
-async def test_permanent_people_conflict_then_purge_associated_history(ctx: Ctx) -> None:
+async def test_people_on_bills_are_never_deleted_only_archived(ctx: Ctx) -> None:
     user, other = await ctx.user(), await ctx.user("other")
     bill, ids = await full_bill(ctx, user)
     survivor = await new_bill(ctx, user, title="Keep me")
@@ -182,16 +182,19 @@ async def test_permanent_people_conflict_then_purge_associated_history(ctx: Ctx)
     assert (await ctx.client.delete(url, headers=user.headers)).status_code == 409
     assert (await ctx.client.delete(f"/api/people/{foreign}?permanent=true", headers=user.headers)).status_code == 204
     assert await ctx.sql("SELECT id FROM people WHERE id = :id", id=foreign)
-    for _ in range(2):
-        response = await ctx.client.delete("/api/bills", headers=user.headers, params={
-            "permanent": "true", "person_id": ids["B"], "confirmation": "DELETE ASSOCIATED BILLS",
-        })
-        assert response.status_code == 204, response.text
+    # There is no "delete this person's bills" path at all (it was too easy to erase history).
+    response = await ctx.client.delete("/api/bills", headers=user.headers, params={
+        "permanent": "true", "person_id": ids["B"], "confirmation": "DELETE ASSOCIATED BILLS",
+    })
+    assert response.status_code == 422, response.text
     assert (await ctx.client.get(f"/api/bills/{survivor['id']}", headers=user.headers)).status_code == 200
-    assert await ctx.sql("SELECT title, payer_person_id FROM bills WHERE id = :id", id=bill["id"]) == [(None, None)]
-    for _ in range(2):
-        assert (await ctx.client.delete(url, headers=user.headers)).status_code == 204
-    assert await ctx.sql("SELECT id FROM people WHERE id = :id", id=ids["B"]) == []
+    assert (await ctx.client.delete(url, headers=user.headers)).status_code == 409
+    assert await ctx.sql("SELECT id FROM people WHERE id = :id", id=ids["B"])
+    # Archiving is the way out: hidden from the list, every bill keeps the name.
+    assert (await ctx.client.delete(f"/api/people/{ids['B']}", headers=user.headers)).status_code == 204
+    listed = (await ctx.client.get("/api/people", headers=user.headers)).json()["items"]
+    assert ids["B"] not in {p["id"] for p in listed}
+    assert await ctx.sql("SELECT archived_at IS NOT NULL FROM people WHERE id = :id", id=ids["B"]) == [(True,)]
     response = await ctx.client.delete(f"/api/people/{user.self_person_id}?permanent=true", headers=user.headers)
     assert response.status_code == 409 and response.json()["code"] == "cannot_delete_self"
 

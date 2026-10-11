@@ -44,9 +44,16 @@ Shells: `AppShell` (sidebar on desktop, bottom tabs on phones) wraps Home, Bills
 Desktop layout (owner pass 2026-10-08):
 - No left-aligned `max-w-[...]` page columns and no centred `mx-auto` column (playbook §1.6). Fill the width with grid tracks: main `minmax(0,1fr)` + `var(--app-rail-w)` rail with a hairline `border-l` (Assign, Summary, the flow People step). Narrow *forms* may keep a width cap.
 - Page-level controls go in `PageTitle actions` (same row as the title on desktop). Bulk destructive actions ("Clear …") sit after the list, never in the toolbar.
-- Row actions (Edit/Delete) reveal on row hover/focus in reserved width (`opacity`, nothing shifts) and stay visible on touch (`pointer-coarse:opacity-100`).
+- Row actions (Delete) reveal on row hover/focus in reserved width (`opacity`, nothing shifts) and stay visible on touch (`pointer-coarse:opacity-100`).
 - Flow steps: `footer` is a sticky action bar on desktop (summary left, actions right; `FooterBar`). Don't float primary buttons inside the content.
-- Home opens with Start a bill (scan/upload is the wide primary tile). Balances live on People (per person, per currency), not on Home.
+- Home opens with Start a bill (scan/upload is the wide primary tile), then **Your balance** (soft yellow band, one line per currency, never converted; owner request 2026-10-11), then In progress. Who-owes-whom lives on People.
+
+Balances and payments (owner pass 2026-10-11, see [HANDOVER_SETTLE_UP_20261011.md](HANDOVER_SETTLE_UP_20261011.md)):
+- **Paid is always an on/off toggle** (`components/PaidToggle`): outlined off, filled with a tick when on, tap again to take it back. Never a one-way "Mark paid" or a separate "Undo".
+- **Money coming to the signed-in user says "Received", never "Paid"** (`paidByMe(bill)` in `features/bill/flow.ts`; `to_person.is_self` in settle-up).
+- Amounts in lists are a **ledger**: currency code left-aligned, number right-aligned (tabular), then to/from and who. Incoming money is `text-cobalt-ink`, money owed is ink.
+- People rows are read-only balance lines; tapping opens the breakdown sheet, where Paid lives. There is no Edit person.
+- Never delete people who are on bills, and never offer to delete bills to make that possible. Archive is the way out.
 
 ## 4. Data (`web/src/data/queries.ts`, `web/src/lib/*`)
 

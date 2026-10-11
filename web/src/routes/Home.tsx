@@ -3,8 +3,9 @@ import { Wordmark } from '@/components/Brand'
 import { useMe, useSummary, useUsage } from '@/data/queries'
 import { InProgress, RecentBills, StartBill } from '@/features/home/HomeSections'
 import { ToConfirm } from '@/features/home/ToConfirm'
+import { HomeBalance } from '@/features/settle/YourBalance'
 
-/** Home: start a bill (scan first), resume one, and the latest ones. Balances live on People. */
+/** Home: start a bill (scan first), your balance, resume one, and the latest ones. Who-owes-whom lives on People. */
 export default function HomePage() {
   const me = useMe()
   const summary = useSummary()
@@ -34,6 +35,8 @@ export default function HomePage() {
 
       {/* Starting a bill is the first thing on the page; scanning/uploading leads. */}
       <StartBill usage={usage.data} />
+      {/* where you stand, one line per currency, right before the work in progress */}
+      <HomeBalance summary={summary.data} homeCurrency={homeCurrency} />
       <InProgress />
       <RecentBills summary={summary.data} homeCurrency={homeCurrency} />
     </div>

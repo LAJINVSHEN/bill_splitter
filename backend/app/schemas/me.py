@@ -114,3 +114,79 @@ class InboxClaim(OutputModel):
 
 class InboxOut(OutputModel):
     items: list[InboxClaim]
+
+
+class SettlePerson(OutputModel):
+    person_id: UUID
+    name: str
+    color_seed: int
+    is_self: bool
+
+
+class SettlePayment(OutputModel):
+    from_person: SettlePerson
+    to_person: SettlePerson
+    amount_cents: int  # the group's currency
+    bill_count: int  # bills this payment closes (or chips at)
+
+
+class SettleDebt(OutputModel):
+    """One open bill debt behind the plan (for the per-person breakdown)."""
+
+    bill_id: UUID
+    title: str | None
+    bill_date: date | None
+    from_person: SettlePerson
+    to_person: SettlePerson  # the bill's payer
+    amount_cents: int  # the group's currency
+    currency: str  # the bill's own (effective) currency
+    original_cents: int  # in ``currency``; equals amount_cents unless currencies were merged
+
+
+class SettleGroup(OutputModel):
+    currency: str
+    original: list[SettlePayment]  # who owes whom, as the bills say (one row per pair)
+    simplified: list[SettlePayment]  # fewest payments, same net balances
+    cancel_out: list[SettlePerson]  # people whose debts cancel in a loop: clear them, no money moves
+    debts: list[SettleDebt]  # every open bill debt in this group, newest bill first
+
+
+class SettlePiece(OutputModel):
+    """Part of one bill debt that a recorded row marked paid (bill's own currency)."""
+
+    bill_id: UUID
+    person_id: UUID
+    amount_cents: int
+
+
+class SettleUpOut(OutputModel):
+    combined_into: str | None  # set when every currency was merged into it with saved rates
+    currencies: list[str]  # effective currencies with open debts
+    missing_rates: list[str]  # asked to merge, but no saved rate from these into the target
+    groups: list[SettleGroup]
+    applied: list[SettlePiece] = []  # after recording a row: what it marked paid (send back to undo)
+
+
+class SettlePieceIn(InputModel):
+    bill_id: UUID
+    person_id: UUID
+    amount_cents: Annotated[int, Field(gt=0)]
+
+
+class SettleUndoIn(InputModel):
+    """Take back a recorded row: subtract exactly what it marked paid."""
+
+    combine: Currency | None = None
+    pieces: Annotated[list[SettlePieceIn], Field(min_length=1, max_length=500)]
+
+
+class SettleRecordIn(InputModel):
+    """Record one row of the plan as paid. The server recomputes the plan and refuses (409
+    ``plan_changed``) unless the row still matches, so a stale screen can't settle the wrong debts."""
+
+    view: Literal["original", "simplified", "cancel_out"]
+    combine: Currency | None = None  # the merge target the plan was computed with
+    currency: Currency  # the group's currency
+    from_person_id: UUID | None = None  # null for cancel_out
+    to_person_id: UUID | None = None
+    amount_cents: int | None = None
