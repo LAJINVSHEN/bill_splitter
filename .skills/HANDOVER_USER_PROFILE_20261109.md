@@ -31,7 +31,7 @@ A **Person** stays a per-owner address-book entry. `people.linked_profile_id` ma
 - **Money across owners** (`settle_up.py`): people are matched by account (`u:<id>`) across bills; placeholders stay per owner (`p:<id>`). On your own bills every debt counts; on shared bills only yours do. A group plan covers its members' debts on any bill you can see, simplifying accounts only (placeholders sit in `separate`). Recording a piece writes the settlement when you own the bill or receive the money; otherwise it becomes an "I've paid" claim for the bill's owner (`SettlePiece.pending`, which undo withdraws).
 - **Share links**: a person with an account must be signed in as themselves to claim (403 `sign_in_required`). The share page sends them to `/login?next=/s/<token>`, and Google returns there (`NEXT_KEY` in sessionStorage).
 - **Friend privacy**: `POST /friends/requests` always answers `sent` (202). It answers differently only for yourself, "already friends", and a decline less than 30 days old (all things the sender already knows). Rate limited to 10/min and 40/day per account (`RATE_LIMIT_FRIEND_REQUESTS`).
-- **Accounts**: Google-only requests. Approval creates the profile for the same auth user (`must_change_password=false`), and there is no password to hand over.
+- **Accounts**: Google-only requests (`google_required` for any other sign-in in production). Approval creates the profile for the same auth user (`must_change_password=false`), and there is no password to hand over. This needs Supabase sign-ups on (`disable_signup: false`, owner's decision 2026-11-09). An auth user without a profile can only ask.
 
 ## 4. Web
 

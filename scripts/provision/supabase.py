@@ -11,7 +11,7 @@ named `even` (or SUPABASE_PROJECT_REF) is reused, and settings are only PATCHed 
 Steps: org → project (strong generated DB password, saved BEFORE the create call) → wait until
 healthy → API keys (publishable/secret, or legacy anon/service_role) → legacy JWT secret (HS256
 fallback) + signing-key info → session-pooler DATABASE_URL (port 5432, IPv4) → Auth config
-(signups off, Site URL, redirect allow-list, JWT expiry) → private `receipts` bucket.
+(sign-ups open for Google access requests, Site URL, redirect allow-list, JWT expiry) → private `receipts` bucket.
 Writes the results to .env.production.local; prints only names and non-secret URLs.
 
 Endpoints (Management API v1, https://api.supabase.com/api/v1-json, checked 2026-10-07):
@@ -141,7 +141,10 @@ def auth_settings(site: str) -> dict:
     return {
         "site_url": site,
         "uri_allow_list": ",".join(allow),
-        "disable_signup": True,                   # accounts are created by the admin only
+        # Open (owner, 2026-11-09) so an unknown Google user gets a session and can only *ask* for an
+        # account (POST /api/access-requests, Google-only in production). Every API route still
+        # needs a profile the admin creates, so a bare auth user can do nothing else.
+        "disable_signup": False,
         "external_email_enabled": True,           # username+password logins use the email provider
         "external_phone_enabled": False,
         "external_anonymous_users_enabled": False,
