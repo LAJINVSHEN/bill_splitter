@@ -1,15 +1,10 @@
 # Scheduled jobs against the production API (Render Free sleeps after ~15 min without traffic).
 #
-# keep-warm   GET /api/health every 10 min at PEAK hours only, Asia/Singapore (UTC+8, no DST):
-#               lunch  11:30–13:50 SGT = 03:30–05:50 UTC → "30-59/10 3 * * *" + "*/10 4-5 * * *"
-#               dinner 18:00–22:50 SGT = 10:00–14:50 UTC → "*/10 10-14 * * *"
-#             The instance sleeps ~15 min after the last ping (≈14:05 / 23:05 SGT). Outside these
-#             windows the SPA wakes the API on load (cold start ~1 min, calm "waking up" state).
-#             Budget: ≈7.7 h/day × 31 ≈ 240 h. Render's 750 free instance-hours are PER WORKSPACE and
-#             GoodDaysAhead (same workspace) already uses ~240–300 h with its hourly cron, so the two
-#             apps together stay ≈ 550–600 h. Recompute before widening a window: going over 750
-#             suspends BOTH services until the month resets.
-#             /api/health never touches the DB. A failed ping only warns; maintenance is the loud alert.
+# keep-warm   Moved to the Cloudflare Worker `even-keep-warm` (GitHub's scheduler fired only a few of the
+#             ~46 daily pings). It pings /api/health every 5 min, 11:00-14:55 and 18:00-23:55 SGT
+#             (crons `*/5 3-6` and `*/5 10-15` UTC) ≈ 340 h/month. Render's 750 free instance-hours are
+#             PER WORKSPACE and GoodDaysAhead uses ~240-300 h, so recompute before widening a window:
+#             going over 750 suspends BOTH services until the month resets.
 # maintenance POST /api/internal/maintenance (Bearer CRON_SECRET) daily at 12:23 SGT = 04:23 UTC
 #             (inside the lunch warm window, so no extra wake-up hours). Purges receipt photos older than
 #             90 days, fails stale scan jobs and runs a DB query. That daily DB activity also stops
@@ -17,54 +12,32 @@
 #
 # Notes: schedules run on the default branch only, may start a few minutes late, and GitHub
 # disables them after 60 days without repository activity (re-enable in the Actions tab).
-# Public repo → Actions minutes are free. On a private repo the keep-warm would use
-# ~1,400 billed minutes/month (≈46 keep-warm runs/day), within the 2,000 free minutes.
 # Needs: repo variable API_BASE_URL, repo secret CRON_SECRET (same value as on Render).
-name: Cron (keep-warm, maintenance)
+name: Cron (maintenance)
 
 on:
   schedule:
-    - cron: "30-59/10 3 * * *" # keep-warm 11:30–11:50 SGT
-    - cron: "*/10 4-5 * * *"   # keep-warm 12:00–13:50 SGT
-    - cron: "*/10 10-14 * * *" # keep-warm 18:00–22:50 SGT
     - cron: "23 4 * * *"       # maintenance 12:23 SGT
   workflow_dispatch:
     inputs:
       task:
         description: Which job to run
         type: choice
-        options: [maintenance, keep-warm]
+        options: [maintenance]
         default: maintenance
 
 concurrency:
-  group: cron-${{ github.event.schedule == '23 4 * * *' && 'maintenance' || inputs.task || 'keep-warm' }}
+  group: cron-maintenance
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  keep-warm:
-    if: >-
-      vars.API_BASE_URL != '' &&
-      ((github.event_name == 'schedule' && github.event.schedule != '23 4 * * *') ||
-       (github.event_name == 'workflow_dispatch' && inputs.task == 'keep-warm'))
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: GET /api/health
-        env:
-          API_BASE_URL: ${{ vars.API_BASE_URL }}
-        run: |
-          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 60 \
-            --retry 3 --retry-delay 20 --retry-all-errors "${API_BASE_URL%/}/api/health") || code=000
-          echo "GET /api/health → HTTP $code"
-          if [ "$code" != "200" ]; then echo "::warning::keep-warm ping returned HTTP $code"; fi
-
   maintenance:
     if: >-
       vars.API_BASE_URL != '' &&
-      ((github.event_name == 'schedule' && github.event.schedule == '23 4 * * *') ||
+      (github.event_name == 'schedule' ||
        (github.event_name == 'workflow_dispatch' && inputs.task == 'maintenance'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
