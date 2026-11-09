@@ -478,7 +478,7 @@ async def test_maintenance_purges_expired_photos_and_fails_stale_jobs(ctx: Ctx) 
 async def test_cors_preflight_allowlist(ctx: Ctx) -> None:
     ok = await ctx.client.options("/api/bills", headers={
         "Origin": "https://app.example.com", "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers": "authorization,content-type,idempotency-key"})
+        "Access-Control-Request-Headers": "authorization,content-type,idempotency-key,x-bill-version"})
     assert ok.status_code == 200 and ok.headers["access-control-allow-origin"] == "https://app.example.com"
     bad = await ctx.client.options("/api/bills", headers={
         "Origin": "https://evil.example.com", "Access-Control-Request-Method": "POST"})
