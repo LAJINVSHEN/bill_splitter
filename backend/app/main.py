@@ -122,7 +122,7 @@ def create_app(settings: Settings | None = None,
         allow_origins=settings.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Bill-Version"],
         max_age=600,
     )
     app.include_router(build_api_router(
