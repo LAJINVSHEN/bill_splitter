@@ -64,10 +64,11 @@ def effective_currency(bill: Bill) -> str:
     return bill.settle_currency or bill.currency
 
 
-def split_out(bill: Bill, result: SplitResult | None = None) -> SplitOut:
+def split_out(bill: Bill, result: SplitResult | None = None, *, viewer_id: UUID | None = None) -> SplitOut:
     """Bill-currency split plus, when the bill has a conversion snapshot, the settle-currency
     view: total_settle = ROUND_HALF_UP(grand × rate) in settle minor units, allocated over the
-    per-person bill-currency totals (so converted shares sum exactly)."""
+    per-person bill-currency totals (so converted shares sum exactly). ``is_self`` is the viewer
+    when given (a shared bill seen by a member), else the owner's own entry."""
     result = result or compute_bill_split(bill)
     payer = effective_payer(bill)
     item_names = {str(i.id): i.name for i in bill.items}
@@ -87,7 +88,7 @@ def split_out(bill: Bill, result: SplitResult | None = None) -> SplitOut:
         effective_total = settle if settle is not None else pr.total_cents
         people.append(SplitPersonOut(
             person_id=part.person_id, name=part.person.name, color_seed=part.person.color_seed,
-            is_self=part.person.is_self, is_payer=is_payer, items_cents=pr.items_cents,
+            is_self=part.person.account_id == viewer_id if viewer_id else part.person.is_self, is_payer=is_payer, items_cents=pr.items_cents,
             adjustment_cents=pr.adjustment_cents, total_cents=pr.total_cents, settle_total_cents=settle,
             effective_total_cents=effective_total,
             items=[SplitItemShareOut(item_id=UUID(iid), name=item_names.get(iid, ""), share_cents=c)

@@ -83,6 +83,8 @@ class PublicPerson(OutputModel):
     outstanding_cents: int  # effective currency
     effective_total_cents: int
     claim: PublicClaim | None  # their latest "I've paid", if any
+    has_account: bool = False  # saying "I've paid" needs them signed in
+    is_you: bool = False  # the signed-in viewer is this person
 
 
 class PublicShareOut(OutputModel):
@@ -104,3 +106,4 @@ class PublicShareOut(OutputModel):
     itemised: bool  # false for a quick split (its one item is just "Total")
     person: PublicPerson | None  # per-person link
     people: list[PublicPerson]  # whole-bill link (empty for per-person links)
+    bill_id: UUID | None = None  # set when the signed-in viewer is on the bill: open it in the app

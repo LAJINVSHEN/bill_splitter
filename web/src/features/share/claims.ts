@@ -94,7 +94,7 @@ export function useClaims(token: string) {
         try {
           const data = await api<PublicShareOut>(`/public/share/${encodeURIComponent(p.token)}/claims`, {
             method: 'POST',
-            auth: false,
+            auth: 'optional',
             timeoutMs: 75_000,
             body: { client_key: p.clientKey, ...(p.personKey ? { person_key: p.personKey } : {}) },
           })
@@ -147,7 +147,7 @@ export function useClaims(token: string) {
     setError(null)
     setUndoing(true)
     try {
-      const data = await api<PublicShareOut>(`/public/share/${encodeURIComponent(token)}/claims/${key}`, { method: 'DELETE', auth: false, timeoutMs: 75_000 })
+      const data = await api<PublicShareOut>(`/public/share/${encodeURIComponent(token)}/claims/${key}`, { method: 'DELETE', auth: 'optional', timeoutMs: 75_000 })
       qc.setQueryData(qk.publicShare(token), data)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Couldn’t undo that. Try again.')

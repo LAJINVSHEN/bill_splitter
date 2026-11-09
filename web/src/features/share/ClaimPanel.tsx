@@ -1,5 +1,5 @@
 import { EqualsMark } from '@/components/Brand'
-import { Button } from '@/components/Button'
+import { Button, ButtonLink } from '@/components/Button'
 import { EvenBadge, Money, Notice } from '@/components/Display'
 import { useToast } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
@@ -98,9 +98,16 @@ export function ClaimPanel({
             {host} updated the bill: <Money minor={owed} currency={eff} code /> more to pay.
           </Notice>
         )}
-        <Button size="lg" block onClick={() => claims.claim(personKey)}>
-          I’ve paid <Money minor={owed} currency={eff} code />
-        </Button>
+        {person.has_account && !person.is_you ? (
+          // they're on even: the claim must come from their own sign-in (links get forwarded)
+          <ButtonLink to={`/login?next=${encodeURIComponent(`/s/${token}`)}`} size="lg" block>
+            Sign in to say you’ve paid
+          </ButtonLink>
+        ) : (
+          <Button size="lg" block onClick={() => claims.claim(personKey)}>
+            I’ve paid <Money minor={owed} currency={eff} code />
+          </Button>
+        )}
       </div>
     )
   }
@@ -108,6 +115,11 @@ export function ClaimPanel({
   return (
     <section aria-label="Payment" className="flex flex-col gap-3 px-1">
       {body}
+      {share.bill_id && person.is_you && (
+        <ButtonLink to={`/bills/${share.bill_id}`} variant="quiet" className="self-start" icon={<Icon name="bill" size={18} />}>
+          Open the bill in even
+        </ButtonLink>
+      )}
       {claims.error && <Notice tone="danger">{claims.error}</Notice>}
     </section>
   )

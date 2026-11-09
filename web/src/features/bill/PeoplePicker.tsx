@@ -3,7 +3,7 @@ import { EqualsMark } from '@/components/Brand'
 import { Button } from '@/components/Button'
 import { Avatar, Notice } from '@/components/Display'
 import { Icon } from '@/components/Icon'
-import { useCreatePerson, usePeople } from '@/data/queries'
+import { useCreatePerson, useGroups, usePeople } from '@/data/queries'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import type { UUID } from '@/lib/types'
@@ -13,6 +13,8 @@ export interface PickerPerson {
   name: string
   color_seed: number
   is_self: boolean
+  /** a friend's even account */
+  username?: string | null
 }
 
 const SHOW = 12
@@ -20,7 +22,8 @@ const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 
 /**
  * Who's splitting: "Me" first, then saved people by recency, as checkboxes with their colour.
- * Type to find someone; Enter or + adds a new person and ticks them.
+ * Type to find someone; Enter or + adds a new person and ticks them. Friends with an account show
+ * their @id (the bill is shared with them); a saved group ticks all its people in one tap.
  * Controlled: `selected` is ordered (Me first); rows never jump when ticked.
  */
 export function PeoplePicker({
@@ -43,6 +46,7 @@ export function PeoplePicker({
   aside?: (person: PickerPerson) => ReactNode
 }) {
   const people = usePeople()
+  const groups = useGroups()
   const create = useCreatePerson()
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState(false)
@@ -51,7 +55,13 @@ export function PeoplePicker({
   const [pinned, setPinned] = useState<UUID[]>(selected)
 
   const all = useMemo(() => {
-    const list: PickerPerson[] = (people.data ?? []).map((p) => ({ id: p.id, name: p.name, color_seed: p.color_seed, is_self: p.is_self }))
+    const list: PickerPerson[] = (people.data ?? []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      color_seed: p.color_seed,
+      is_self: p.is_self,
+      username: p.username,
+    }))
     for (const k of known) if (!list.some((p) => p.id === k.id)) list.push(k)
     const pin = pinned
     const rank = (p: PickerPerson) => (p.is_self ? -1 : pin.includes(p.id) ? pin.indexOf(p.id) : pin.length + list.indexOf(p))
@@ -67,6 +77,14 @@ export function PeoplePicker({
   const toggle = (id: UUID, on: boolean) => {
     if (locked.includes(id)) return
     onChange(on ? [...selected.filter((s) => s !== id), id] : selected.filter((s) => s !== id))
+  }
+  const active = new Set((people.data ?? []).map((p) => p.id))
+  const usable = (groups.data ?? []).filter((g) => g.person_ids.some((id) => active.has(id)))
+  const addGroup = (ids: UUID[]) => {
+    const fresh = ids.filter((id) => active.has(id) && !selected.includes(id))
+    if (!fresh.length) return
+    setPinned((list) => [...list, ...fresh.filter((id) => !list.includes(id))])
+    onChange([...selected, ...fresh])
   }
 
   const addOrPick = async () => {
@@ -134,6 +152,31 @@ export function PeoplePicker({
         </Notice>
       )}
 
+      {usable.length > 0 && (
+        <div role="group" aria-label="Add a group" className="flex flex-wrap gap-2 pt-1">
+          {usable.map((g) => {
+            const all = g.person_ids.filter((id) => active.has(id))
+            const on = all.every((id) => selected.includes(id))
+            return (
+              <button
+                key={g.id}
+                type="button"
+                aria-pressed={on}
+                onClick={() => addGroup(all)}
+                className={cn(
+                  'inline-flex h-11 items-center gap-1.5 rounded-full border-[1.5px] px-3.5 text-[15px] font-semibold',
+                  on ? 'border-cobalt bg-cobalt-soft text-cobalt-ink' : 'border-rule-2 text-ink hover:border-cobalt hover:text-cobalt',
+                )}
+              >
+                <Icon name="group" size={18} />
+                {g.name}
+                <span className="num text-[14px] text-ink-2">{all.length}</span>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       <ul aria-label="People" aria-busy={people.isPending || undefined}>
         {q && !exact && (
           <li className="border-b border-rule">
@@ -159,7 +202,10 @@ export function PeoplePicker({
                   className="h-[22px] w-[22px] shrink-0 accent-cobalt disabled:opacity-100"
                 />
                 <Avatar name={p.name} seed={p.color_seed} />
-                <span className={cn('min-w-0 flex-1 truncate text-[16px]', on ? 'font-semibold' : 'font-medium')}>{p.is_self ? 'Me' : p.name}</span>
+                <span className={cn('min-w-0 flex-1 truncate text-[16px]', on ? 'font-semibold' : 'font-medium')}>
+                  {p.is_self ? 'Me' : p.name}
+                  {p.username && <span aria-hidden="true" className="ml-1.5 text-[14px] font-semibold text-ink-2">@{p.username}</span>}
+                </span>
                 {note && <span className="shrink-0 text-[14px] font-semibold text-ink-2">{note(p.id)}</span>}
               </label>
               {on && aside?.(p)}

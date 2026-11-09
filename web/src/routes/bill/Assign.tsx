@@ -63,7 +63,9 @@ function AssignScreen({ bill }: { bill: BillOut }) {
   const painter = useAssignments(bill.id)
   const participants = bill.participants
   const ids = participants.map((p) => p.person_id)
-  const [activeId, setActiveId] = useState<UUID | undefined>(ids[0])
+  // start on your own row: on a shared bill, "tick what you had" is the first thing to do
+  const [activeId, setActiveId] = useState<UUID | undefined>(bill.my_person_id ?? ids[0])
+  const member = bill.role === 'member'
   const active = participants.find((p) => p.person_id === activeId) ?? participants[0]
   const [dialogItem, setDialogItem] = useState<UUID | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -91,11 +93,16 @@ function AssignScreen({ bill }: { bill: BillOut }) {
     setLeaving(true)
     try {
       if (!(await painter.settle())) return
+      if (member && bill.status !== 'complete') {  // the owner finishes their bill
+        toast(`Saved. ${bill.owner_name} finishes the bill.`)
+        navigate('/')
+        return
+      }
       if (!anyway && unassigned.length) {
         setConfirmOpen(true)
         return
       }
-      await patch.mutateAsync({ status: 'complete' })
+      if (bill.status !== 'complete') await patch.mutateAsync({ status: 'complete' })
       navigate(`/bills/${bill.id}`)
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Couldn’t finish. Try again.', 'danger')
@@ -125,7 +132,7 @@ function AssignScreen({ bill }: { bill: BillOut }) {
             </span>
           </div>
           <Button size="lg" loading={leaving && !confirmOpen} onClick={() => void finish()}>
-            See totals
+            {member && bill.status !== 'complete' ? 'Done' : 'See totals'}
           </Button>
         </FooterBar>
       }
@@ -166,14 +173,16 @@ function AssignScreen({ bill }: { bill: BillOut }) {
               )
             })}
             </ScrollStrip>
-            <button
-              type="button"
-              onClick={() => setPeopleOpen(true)}
-              className="flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap border-l border-rule pl-3 text-[15px] font-bold text-cobalt hover:text-cobalt-ink"
-            >
-              <Icon name="people" size={18} />
-              People
-            </button>
+            {!member && (
+              <button
+                type="button"
+                onClick={() => setPeopleOpen(true)}
+                className="flex h-11 shrink-0 items-center gap-1.5 whitespace-nowrap border-l border-rule pl-3 text-[15px] font-bold text-cobalt hover:text-cobalt-ink"
+              >
+                <Icon name="people" size={18} />
+                People
+              </button>
+            )}
           </div>
 
           <ul aria-label={`Items — tap to add or remove ${active ? personName(active) : ''}`} className="-mt-4">

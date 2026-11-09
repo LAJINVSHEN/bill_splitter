@@ -10,7 +10,9 @@ from app.middleware.auth import CurrentUser
 from app.models import Person, Profile
 from app.repositories import bills as bills_repo
 from app.schemas.me import CurrencyBalance, MeOut, MePatch, OutstandingBill, PersonBalance, SummaryOut
+from app.services import mailbox
 from app.services.claims import count_open
+from app.services.settle_up import Viewpoint
 from app.services.people import ensure_self
 from app.services.split_view import split_out
 
@@ -24,7 +26,8 @@ async def get_me(db: AsyncSession, user: CurrentUser) -> MeOut:
                  role=profile.role, must_change_password=profile.must_change_password,
                  monthly_scan_quota=profile.monthly_scan_quota, default_currency=profile.default_currency,
                  payment_note=profile.payment_note, self_person_id=me.id, created_at=profile.created_at,
-                 open_claims_count=await count_open(db, user.id))
+                 open_claims_count=await count_open(db, user.id), discoverable=profile.discoverable,
+                 mailbox_count=await mailbox.unread_count(db, user.id))
 
 
 async def patch_me(db: AsyncSession, user: CurrentUser, data: MePatch) -> MeOut:
@@ -35,6 +38,8 @@ async def patch_me(db: AsyncSession, user: CurrentUser, data: MePatch) -> MeOut:
         values["default_currency"] = data.default_currency
     if "payment_note" in data.model_fields_set:
         values["payment_note"] = data.payment_note
+    if data.discoverable is not None:
+        values["discoverable"] = data.discoverable
     if values:
         await db.execute(update(Profile).where(Profile.id == user.id).values(**values))
         if "display_name" in values:  # keep the "Me" person in sync
@@ -51,35 +56,37 @@ async def password_changed(db: AsyncSession, user: CurrentUser) -> MeOut:
 
 
 async def summary(db: AsyncSession, user: CurrentUser) -> SummaryOut:
-    """Outstanding balances over complete bills, per EFFECTIVE currency, per person and per bill.
-    ``home`` sums only bills whose effective currency is the user's default currency; other
-    currencies are listed separately and never converted implicitly."""
-    me = await ensure_self(db, user.id, user.display_name)
+    """Outstanding balances over complete bills the user owns or is on, per EFFECTIVE currency,
+    per person and per bill. Only the user's own debts count. ``home`` sums only bills whose
+    effective currency is the user's default currency; other currencies are listed separately
+    and never converted implicitly."""
+    view = await Viewpoint.load(db, user)
     by_currency: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     by_person: dict[tuple[UUID, str], dict[str, object]] = {}
     bills_out: list[OutstandingBill] = []
     for bill in await bills_repo.bills_with_open_balances(db, user.id):
-        split = split_out(bill)
+        split = split_out(bill, viewer_id=user.id)
         cur = split.effective_currency  # settle currency when converted; never mixed with others
         payer = split.payer_person_id
         if payer is None:
             continue
-        payer_name = next((p.name for p in split.people if p.person_id == payer), "")
+        persons = {p.person_id: p.person for p in bill.participants}
+        payer_is_me = next(p.is_self for p in split.people if p.person_id == payer)
         owed_to_me = i_owe = unsettled = 0
         for p in split.people:
             if p.outstanding_cents <= 0:
                 continue
             unsettled += 1
-            if payer == me.id and p.person_id != me.id:
+            if payer_is_me and not p.is_self:
                 owed_to_me += p.outstanding_cents
-                key, name, direction = (p.person_id, cur), p.name, "they_owe_me_cents"
-            elif p.person_id == me.id and payer != me.id:
+                other, direction = view.person(bill, persons[p.person_id]), "they_owe_me_cents"
+            elif p.is_self and not payer_is_me:
                 i_owe += p.outstanding_cents
-                key, name, direction = (payer, cur), payer_name, "i_owe_them_cents"
+                other, direction = view.person(bill, persons[payer]), "i_owe_them_cents"
             else:
                 continue
-            entry = by_person.setdefault(key, {"name": name, "they_owe_me_cents": 0, "i_owe_them_cents": 0,
-                                               "bills": set()})
+            entry = by_person.setdefault((other.person_id, cur), {"name": other.name, "they_owe_me_cents": 0,
+                                                                  "i_owe_them_cents": 0, "bills": set()})
             entry[direction] = int(entry[direction]) + p.outstanding_cents  # type: ignore[call-overload]
             entry["bills"].add(bill.id)  # type: ignore[union-attr]
         if owed_to_me or i_owe:

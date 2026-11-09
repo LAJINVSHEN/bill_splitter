@@ -8,7 +8,8 @@ import { SelectField } from '@/components/Field'
 import { FullName } from '@/components/FullName'
 import { Icon } from '@/components/Icon'
 import { PaidToggle } from '@/components/PaidToggle'
-import { useConfirmAll, useConfirmClaim, useDeleteBill, useMe, usePatchBill, useRejectClaim, useSettle, useUnsettle } from '@/data/queries'
+import { useClaimMine, useConfirmAll, useConfirmClaim, useDeleteBill, useMe, usePatchBill, useRejectClaim, useSettle, useUnsettle } from '@/data/queries'
+import { Together } from '@/features/live/Together'
 import type { BillOut, ClaimOut, SplitPersonOut } from '@/lib/types'
 import { ConvertDialog } from '@/features/bill/ConvertDialog'
 import { billTitle, paidByMe, stepPath } from '@/features/bill/flow'
@@ -36,7 +37,12 @@ function Summary({ bill }: { bill: BillOut }) {
   const confirmClaim = useConfirmClaim(bill.id)
   const rejectClaim = useRejectClaim(bill.id)
   const confirmAll = useConfirmAll(bill.id)
+  const claimMine = useClaimMine(bill.id)
   const del = useDeleteBill()
+  const owner = bill.role !== 'member'
+  const ownerFirst = (bill.owner_name ?? '').split(' ')[0] || 'The owner'
+  // the owner records payments; on someone else's bill, so does whoever the money goes to
+  const canSettle = owner || paidByMe(bill)
   const title = billTitle(bill)
   const [sheet, setSheet] = useState<string | null>(null)
   const [convertOpen, setConvertOpen] = useState(false)
@@ -66,6 +72,7 @@ function Summary({ bill }: { bill: BillOut }) {
     bill.merchant && bill.merchant !== title ? bill.merchant : null,
     peopleCount(split.people.length),
     payer ? (payer.is_self ? 'you paid' : `${payer.name} paid`) : null,
+    owner ? null : `${ownerFirst}’s bill`,
   ].filter(Boolean).join(' · ')
 
   const remove = () =>
@@ -88,11 +95,11 @@ function Summary({ bill }: { bill: BillOut }) {
               <Icon name="lock" size={16} />
               Locked after the first payment
             </span>
-          ) : (
+          ) : owner ? (
             <Button variant="quiet" onClick={() => setConvertOpen(true)}>
               Change
             </Button>
-          )}
+          ) : null}
         </>
       ) : (
         <>
@@ -102,11 +109,11 @@ function Summary({ bill }: { bill: BillOut }) {
               <Icon name="lock" size={16} />
               Locked after the first payment
             </span>
-          ) : (
+          ) : owner ? (
             <Button variant="quiet" icon={<Icon name="swap" size={18} />} onClick={() => setConvertOpen(true)}>
               Show in {bill.currency !== home ? home : 'another currency'}
             </Button>
-          )}
+          ) : null}
         </>
       )}
     </div>
@@ -114,7 +121,26 @@ function Summary({ bill }: { bill: BillOut }) {
 
   const showConversion = converted || bill.currency !== home
 
-  const actions = (
+  // Someone else's bill: edit what was had (items, who had what); the rest is theirs.
+  const memberActions = (
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-1">
+        {bill.source !== 'quick' && (
+          <ButtonLink to={editSplit} size="lg">
+            Who had what
+          </ButtonLink>
+        )}
+        {bill.source !== 'quick' && (
+          <ButtonLink to={editItems} variant="secondary" size="lg">
+            Edit items
+          </ButtonLink>
+        )}
+      </div>
+      <p className="text-[15px] text-ink-2">{ownerFirst} keeps who’s on it, the currency and deleting it.</p>
+    </div>
+  )
+
+  const actions = !owner ? memberActions : (
     <div className="flex flex-col gap-5">
       <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-1">
         <Button size="lg" icon={<Icon name="share" size={18} />} onClick={() => setShareOpen(true)}>
@@ -167,10 +193,11 @@ function Summary({ bill }: { bill: BillOut }) {
         >
           {title}
         </PageTitle>
+        <Together billId={bill.id} className="-mt-2" />
         <BillBalance bill={bill} />
         {showConversion && conversion}
 
-        {claims.length > 1 && (
+        {owner && claims.length > 1 && (
           <Notice
             tone="warn"
             action={
@@ -205,6 +232,10 @@ function Summary({ bill }: { bill: BillOut }) {
               converted={converted}
               busy={pending(p.person_id)}
               claim={claimOf(p.person_id)}
+              canSettle={canSettle}
+              ownerName={ownerFirst}
+              onClaim={(paid) => claimMine.mutate(paid, { onError: fail })}
+              claiming={claimMine.isPending}
               onConfirm={(c) => confirmClaim.mutate({ claimId: c.id }, { onError: fail })}
               onReject={(c) => rejectClaim.mutate(c.id, { onError: fail })}
               onOpen={() => setSheet(p.person_id)}
@@ -299,6 +330,10 @@ function PersonRow({
   converted,
   busy,
   claim,
+  canSettle,
+  ownerName,
+  onClaim,
+  claiming,
   onConfirm,
   onReject,
   onOpen,
@@ -310,6 +345,10 @@ function PersonRow({
   converted: boolean
   busy: boolean
   claim?: ClaimOut
+  canSettle: boolean
+  ownerName: string
+  onClaim: (paid: boolean) => void
+  claiming: boolean
   onConfirm: (c: ClaimOut) => void
   onReject: (c: ClaimOut) => void
   onOpen: () => void
@@ -335,6 +374,8 @@ function PersonRow({
       <span className="min-w-0 truncate text-[14px] text-ink-2">
         {p.is_payer ? (
           <span className="font-semibold">paid the bill</span>
+        ) : claim && !canSettle ? (
+          <span className="font-semibold text-warn">Waiting for {ownerName} to confirm</span>
         ) : claim ? (
           <span className="font-semibold text-warn">
             Says paid <Money minor={claim.amount_cents} currency={claim.currency} />
@@ -353,7 +394,14 @@ function PersonRow({
         ) : null}
       </span>
       <span className="flex items-center justify-end gap-4 text-[14px]">
-        {p.is_payer ? (
+        {!canSettle ? (
+          // On someone else's bill you say you've paid (they confirm); others' rows are read-only.
+          even ? (
+            <EvenBadge />
+          ) : p.is_self && !p.is_payer ? (
+            <PaidToggle paid={Boolean(claim)} text="I’ve paid" busy={claiming} onToggle={() => onClaim(!claim)} label="I’ve paid my share" />
+          ) : null
+        ) : p.is_payer ? (
           p.is_self ? <span className="font-semibold text-ink-2">your share</span> : null
         ) : even ? (
           // paid → the toggle is on; tap again to take it back

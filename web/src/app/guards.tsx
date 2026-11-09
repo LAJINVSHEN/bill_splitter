@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from 'react-router'
 import { FullPageLoader } from '@/components/Display'
 import { useMe } from '@/data/queries'
 import { ApiError } from '@/lib/api'
+import { NEXT_KEY } from '@/lib/auth'
 import { useSessionStatus } from './session'
 
 /** Signed in + provisioned + temp password changed. Everything private sits under this. */
@@ -20,6 +21,12 @@ export function RequireAuth() {
     return <Navigate to={`/login?problem=${encodeURIComponent(code || 'unavailable')}`} replace />
   }
   if (me.data?.must_change_password && location.pathname !== '/welcome') return <Navigate to="/welcome" replace />
+  // back from Google: continue where sign-in started (a share link, a bill)
+  const after = sessionStorage.getItem(NEXT_KEY)
+  if (after) {
+    sessionStorage.removeItem(NEXT_KEY)
+    if (after !== location.pathname + location.search) return <Navigate to={after} replace />
+  }
   return <Outlet />
 }
 

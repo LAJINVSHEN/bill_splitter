@@ -1,10 +1,10 @@
-import { NavLink, Outlet } from 'react-router'
+import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { EqualsMark, Wordmark } from '@/components/Brand'
 import { ButtonLink } from '@/components/Button'
 import { Meter } from '@/components/Display'
 import { SlowNetworkBar } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
-import { useInbox, useMe, useUsage } from '@/data/queries'
+import { useMailboxCount, useMe, useUsage } from '@/data/queries'
 import { cn } from '@/lib/cn'
 
 interface NavItem {
@@ -12,31 +12,64 @@ interface NavItem {
   label: string
   mobileLabel?: string
   end?: boolean
-  /** things waiting on you there (friends' "I've paid" on Home) */
+  /** things waiting on you there (the Mailbox) */
   badge?: number
+  /** desktop sidebar only: phones reach it from the top bar */
+  wide?: boolean
 }
 
-function Badge({ n }: { n?: number }) {
+function Badge({ n, className }: { n?: number; className?: string }) {
   if (!n) return null
   return (
-    <span className="num inline-grid h-5 min-w-5 place-items-center rounded-full bg-cobalt px-1.5 text-[12px] font-bold leading-none text-white">
-      {n}
-      <span className="sr-only"> to confirm</span>
+    <span className={cn('num inline-grid h-5 min-w-5 place-items-center rounded-full bg-cobalt px-1.5 text-[12px] font-bold leading-none text-white', className)}>
+      {n > 99 ? '99+' : n}
+      <span className="sr-only"> new</span>
     </span>
   )
 }
 
 function useNav(): NavItem[] {
   const me = useMe()
-  const inbox = useInbox(Boolean(me.data))
+  const mail = useMailboxCount(Boolean(me.data))
   const items: NavItem[] = [
-    { to: '/', label: 'Home', end: true, badge: inbox.data?.length },
+    { to: '/', label: 'Home', end: true },
     { to: '/bills', label: 'Bills' },
     { to: '/people', label: 'People' },
+    { to: '/mailbox', label: 'Mailbox', badge: mail.data, wide: true },
     { to: '/account', label: 'Account', mobileLabel: 'Me' },
   ]
-  if (me.data?.role === 'admin') items.push({ to: '/admin', label: 'Admin' })
+  if (me.data?.role === 'admin') items.push({ to: '/admin', label: 'Admin', wide: true })
   return items
+}
+
+/**
+ * Phones: the wordmark, and the Mailbox one tap away on every tab page (an envelope with its
+ * count), so the four bottom tabs stay roomy. Desktop has both in the sidebar instead.
+ */
+function PhoneBar() {
+  const me = useMe()
+  const mail = useMailboxCount(Boolean(me.data))
+  const here = useLocation().pathname === '/mailbox'
+  const n = mail.data ?? 0
+  return (
+    <header className="flex h-14 items-center justify-between md:hidden">
+      <Link to="/" aria-label="even, home">
+        <Wordmark size="sm" />
+      </Link>
+      <Link
+        to="/mailbox"
+        aria-label={n ? `Mailbox, ${n} new` : 'Mailbox'}
+        aria-current={here ? 'page' : undefined}
+        className={cn(
+          'relative -mr-1 grid h-11 w-11 place-items-center rounded-full border-[1.5px]',
+          here ? 'border-ink bg-ink text-white' : 'border-ink text-ink',
+        )}
+      >
+        <Icon name="mail" size={20} />
+        <Badge n={n} className="absolute -right-1.5 -top-1 ring-2 ring-paper" />
+      </Link>
+    </header>
+  )
 }
 
 function Sidebar() {
@@ -93,7 +126,7 @@ function Sidebar() {
 }
 
 function BottomNav() {
-  const nav = useNav().filter((n) => n.to !== '/admin')
+  const nav = useNav().filter((n) => !n.wide)
   return (
     <nav aria-label="Main" className="pb-safe fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t border-rule bg-paper md:hidden">
       {nav.map((n) => (
@@ -120,6 +153,7 @@ export function AppShell() {
       <SlowNetworkBar />
       <Sidebar />
       <main className="min-w-0 px-[var(--app-gutter)] pb-[var(--app-bottom-gap)]">
+        <PhoneBar />
         <Outlet />
       </main>
       <BottomNav />

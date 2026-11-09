@@ -4,8 +4,16 @@ from app.models.base import Base
 from app.models.bill import Bill, BillCharge, BillItem, BillParticipant, ItemShare
 from app.models.profile import AppSettings, FxRate, Person, Profile
 from app.models.scan import ExtractionJob, OcrCache, PaymentClaim, ReceiptFile, ShareLink, UsageEvent
+from app.models.social import AccessRequest, BillEdit, Friendship, Group, GroupMember, MailboxItem, PersonLink
 
 __all__ = [
+    "AccessRequest",
+    "BillEdit",
+    "Friendship",
+    "Group",
+    "GroupMember",
+    "MailboxItem",
+    "PersonLink",
     "AppSettings",
     "Base",
     "Bill",

@@ -75,7 +75,10 @@ export function InProgress() {
             <li key={b.id} className="border-b border-rule">
               <Link to={`/bills/${b.id}`} className="group flex min-h-[56px] items-center gap-3 py-1.5 text-ink">
                 <span className="flex min-w-0 flex-1 flex-col md:flex-row md:items-center md:gap-3">
-                  <span className="truncate text-base font-semibold md:flex-1">{billName(b)}</span>
+                  <span className="truncate text-base font-semibold md:flex-1">
+                    {billName(b)}
+                    {b.owner_name && <span className="ml-2 text-[14px] font-semibold text-ink-2">{b.owner_name.split(' ')[0]}’s</span>}
+                  </span>
                   <BillStatusLabel bill={b} owing={0} />
                 </span>
                 <span className="w-[72px] text-right text-[15px] font-bold text-cobalt group-hover:text-cobalt-ink">{s.action}</span>

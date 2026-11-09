@@ -59,6 +59,8 @@ export function useSettle(homeCurrency: string) {
     await run(row.key, async () => {
       const out = await record.mutateAsync({ ...body, combine })
       setDone((d) => [...d, { ...row, combine, pieces: out.applied ?? [] }])
+      // parts on someone else's bill go to its owner as "I've paid"
+      if (out.applied?.some((p) => p.pending)) toast('Marked. The bill’s owner confirms it.')
     })
   }
   async function unmark(row: Done) {

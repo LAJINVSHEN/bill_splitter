@@ -223,6 +223,41 @@ async def require_admin(user: Annotated[CurrentUser, Depends(get_current_user)])
     return user
 
 
+@dataclass(frozen=True)
+class SignedIn:
+    """A valid sign-in that may have no account yet (e.g. a new Google user asking for access)."""
+
+    user_id: uuid.UUID
+    email: str | None
+    name: str | None
+    provider: str | None  # how they signed in ("google", "email"); Google has verified the email
+
+
+async def get_signed_in(request: Request, db: Annotated[AsyncSession, Depends(get_db)]) -> SignedIn:
+    settings = get_settings()
+    claims = await verify_token(_bearer(request), settings, getattr(request.app.state, "jwks", None))
+    if settings.auth_require_live_session and not await session_alive(db, claims):
+        raise _unauthorized("session_ended", "You were signed out. Please sign in again.")
+    meta = claims.raw.get("user_metadata") or {}
+    name = meta.get("full_name") or meta.get("name") if isinstance(meta, dict) else None
+    app_meta = claims.raw.get("app_metadata") or {}
+    provider = app_meta.get("provider") if isinstance(app_meta, dict) else None
+    return SignedIn(user_id=claims.user_id, email=(claims.email or "").strip().lower() or None,
+                    name=str(name)[:60] if name else None, provider=str(provider) if provider else None)
+
+
+async def get_optional_user(request: Request, db: Annotated[AsyncSession, Depends(get_db)]) -> CurrentUser | None:
+    """The signed-in user on a public page (share links), or None when there's no usable sign-in."""
+    if not request.headers.get("authorization"):
+        return None
+    try:
+        return await get_current_user(await get_user_allow_password_change(request, db))
+    except AuthError:
+        return None
+
+
 CurrentUserDep = Annotated[CurrentUser, Depends(get_current_user)]
+OptionalUserDep = Annotated[CurrentUser | None, Depends(get_optional_user)]
+SignedInDep = Annotated[SignedIn, Depends(get_signed_in)]
 AdminDep = Annotated[CurrentUser, Depends(require_admin)]
 PendingUserDep = Annotated[CurrentUser, Depends(get_user_allow_password_change)]

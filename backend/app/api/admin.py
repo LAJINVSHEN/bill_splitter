@@ -20,6 +20,8 @@ from app.schemas.admin import (
     PasswordReset,
 )
 from app.schemas.common import Page
+from app.schemas.social import AccessApproveIn, AccessRequestList, AccessRequestOut
+from app.services import access as access_svc
 from app.services import admin as svc
 from app.services.container import ServicesDep
 
@@ -76,3 +78,22 @@ async def get_settings(admin: AdminDep, db: DB, services: ServicesDep) -> AdminS
 async def patch_settings(data: AdminSettingsPatch, admin: AdminDep, db: DB,
                          services: ServicesDep) -> AdminSettingsOut:
     return await svc.patch_settings(db, services.settings, data)
+
+
+@router.get("/access-requests", response_model=AccessRequestList)
+async def access_requests(admin: AdminDep, db: DB,
+                          status: Annotated[str | None, Query(pattern="^(pending|approved|rejected)$")] = None,
+                          ) -> AccessRequestList:
+    return await access_svc.list_requests(db, status)
+
+
+@router.post("/access-requests/{request_id}/approve", response_model=AccessRequestOut)
+async def approve_access(request_id: UUID, data: AccessApproveIn, admin: AdminDep, db: DB,
+                         services: ServicesDep) -> AccessRequestOut:
+    """Make the account for that Google sign-in (no password: they sign in with Google)."""
+    return await access_svc.approve(db, services.settings, admin, request_id, data)
+
+
+@router.post("/access-requests/{request_id}/reject", response_model=AccessRequestOut)
+async def reject_access(request_id: UUID, admin: AdminDep, db: DB) -> AccessRequestOut:
+    return await access_svc.reject(db, admin, request_id)

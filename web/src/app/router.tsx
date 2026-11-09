@@ -40,6 +40,7 @@ function routes(): RouteObject[] {
           { path: '/bills', ...page(() => import('@/routes/Bills')) },
           { path: '/bills/:billId', ...page(() => import('@/routes/bill/Summary')) },
           { path: '/people', ...page(() => import('@/routes/People')) },
+          { path: '/mailbox', ...page(() => import('@/routes/Mailbox')) },
           { path: '/account', ...page(() => import('@/routes/Account')) },
           { element: <RequireAdmin />, children: [{ path: '/admin', ...page(() => import('@/routes/Admin')) }] },
           { path: '*', ...page(() => import('@/routes/NotFound')) },

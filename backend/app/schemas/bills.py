@@ -212,6 +212,9 @@ class ParticipantOut(OutputModel):
     position: int
     settled_at: datetime | None
     settled_amount_cents: int | None
+    account_id: UUID | None = None  # the account this person is (null: a placeholder)
+    username: str | None = None
+    is_owner: bool = False  # the bill owner's own entry
 
 
 class ValidationErrorOut(OutputModel):
@@ -327,6 +330,9 @@ class BillSummaryOut(OutputModel):
     unassigned_item_count: int = 0
     price_issue_count: int = 0
     validation_issue_count: int = 0
+    role: Literal["owner", "member"] = "owner"
+    owner_name: str | None = None  # set when someone else's bill is shared with you
+    shared: bool = False  # another account is on it
     created_at: datetime
     updated_at: datetime
 
@@ -339,6 +345,10 @@ class ClaimOut(OutputModel):
     expected_total_cents: int  # their total when they claimed (the bill may have changed since)
     via: str  # person_link | group_link
     created_at: datetime
+
+
+class ClaimMineIn(InputModel):
+    client_key: UUID  # the same tap retried never makes two claims
 
 
 class ClaimConfirmIn(InputModel):
@@ -371,4 +381,10 @@ class BillOut(OutputModel):
     split: SplitOut
     latest_job: JobBrief | None
     files: list[FileOut]
-    claims: list[ClaimOut]  # open "I've paid" claims waiting for the owner
+    claims: list[ClaimOut]  # open "I've paid" claims waiting for the owner (a member sees only their own)
+    version: int = 1  # send back as X-Bill-Version so a stale save can be caught
+    role: Literal["owner", "member"] = "owner"  # members edit the receipt and who-had-what
+    owner_name: str = ""
+    shared: bool = False  # another account can see and edit this bill
+    my_person_id: UUID | None = None  # the viewer's own row on the bill
+    updated_by_name: str | None = None  # who saved last, when it wasn't the viewer

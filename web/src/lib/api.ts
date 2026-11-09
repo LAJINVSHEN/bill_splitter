@@ -23,8 +23,9 @@ export interface RequestOptions {
   form?: FormData
   signal?: AbortSignal
   idempotencyKey?: string
-  /** default true */
-  auth?: boolean
+  headers?: Record<string, string>
+  /** default true; 'optional' sends the token when signed in (public pages) */
+  auth?: boolean | 'optional'
   /** default 60 s: a sleeping Render instance can take ~50 s to wake */
   timeoutMs?: number
 }
@@ -63,6 +64,7 @@ async function send(path: string, opts: RequestOptions, token: string | null): P
   }
   if (token) headers.Authorization = `Bearer ${token}`
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey
+  Object.assign(headers, opts.headers)
 
   const controller = new AbortController()
   const onAbort = () => controller.abort(opts.signal?.reason)
@@ -103,9 +105,10 @@ async function toError(res: Response): Promise<ApiError> {
 }
 
 export async function api<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const needsAuth = opts.auth !== false
+  const needsAuth = opts.auth === undefined || opts.auth === true
   let token = needsAuth ? await authClient.getAccessToken() : null
   if (needsAuth && !token) throw new ApiError(401, 'missing_token', 'Please sign in again.')
+  if (opts.auth === 'optional') token = await authClient.getAccessToken().catch(() => null)
 
   let res = await send(path, opts, token)
   if (res.status === 401 && needsAuth) {

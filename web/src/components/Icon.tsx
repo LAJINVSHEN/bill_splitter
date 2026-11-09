@@ -113,6 +113,23 @@ const PATHS = {
     </>
   ),
   swap: <path d="M7 4L4 7l3 3M4 7h13M17 14l3 3-3 3M20 17H7" />,
+  // the Mailbox: an envelope whose flap folds into the "=" of even
+  mail: (
+    <>
+      <rect x="3.5" y="5.5" width="17" height="13" rx="2" />
+      <path d="M4 7.5l8 5.5 8-5.5" />
+    </>
+  ),
+  // a saved group: three heads sharing one line
+  group: (
+    <>
+      <circle cx="12" cy="7.5" r="2.6" />
+      <circle cx="5.5" cy="10" r="2.1" />
+      <circle cx="18.5" cy="10" r="2.1" />
+      <path d="M3 19.5h18" />
+      <path d="M7.5 16.5c.9-2.2 2.6-3.6 4.5-3.6s3.6 1.4 4.5 3.6" />
+    </>
+  ),
 } as const
 
 export type IconName = keyof typeof PATHS

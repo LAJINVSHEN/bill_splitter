@@ -55,6 +55,12 @@ Balances and payments (owner pass 2026-10-11, see [HANDOVER_SETTLE_UP_20261011.m
 - People rows are read-only balance lines; tapping opens the breakdown sheet, where Paid lives. There is no Edit person.
 - Never delete people who are on bills, and never offer to delete bills to make that possible. Archive is the way out.
 
+Accounts together (2026-11-09, see [HANDOVER_USER_PROFILE_20261109.md](HANDOVER_USER_PROFILE_20261109.md)):
+- The **Mailbox** is the one place for anything waiting on you (friend requests, "this placeholder is you", friends' "I've paid") plus updates. Desktop: a sidebar item with its count. Phones: the envelope in the top bar (`PhoneBar`); the bottom tabs stay at four.
+- Shared bills: anything the owner keeps (people, payer, currency, finishing, delete, share links) is hidden for `bill.role === 'member'`, not just disabled. Members say "I've paid" on their own row; whoever receives the money still sees "Received".
+- Editors on a bill must sit in `FlowShell` with their `save` state: that registers the draft guard, so a live refresh never replaces unsaved work. Writes that can clash send `X-Bill-Version` (`usePutReceipt`, `usePutAssignments`). Handle `isBillChanged(err)` by showing the latest bill and the server's message, never by retrying.
+- Friends show their `@id` after the name, kept out of the accessible name (`aria-hidden`), so a person is still "Maya Lim" to screen readers and tests.
+
 ## 4. Data (`web/src/data/queries.ts`, `web/src/lib/*`)
 
 - Use the hooks in `queries.ts`; add new ones there if needed. Every bill mutation returns `BillOut`, and `applyBill` writes it into the cache. **Render from the server response.** Don't keep a second copy of bill state in React state beyond a form's draft.

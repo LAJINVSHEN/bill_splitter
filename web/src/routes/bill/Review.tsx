@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Navigate, useNavigate } from 'react-router'
 import { FlowShell } from '@/app/FlowShell'
 import { Button, ButtonLink } from '@/components/Button'
@@ -7,7 +7,7 @@ import { Money, Notice } from '@/components/Display'
 import { Dialog, useToast } from '@/components/Feedback'
 import { SelectField, TextField } from '@/components/Field'
 import { Icon } from '@/components/Icon'
-import { qk, usePatchBill, usePutReceipt } from '@/data/queries'
+import { isBillChanged, qk, usePatchBill, usePutReceipt } from '@/data/queries'
 import { ApiError } from '@/lib/api'
 import { cn } from '@/lib/cn'
 import type { BillOut } from '@/lib/types'
@@ -70,14 +70,35 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
     setDraft(next)
   }
   // The payload is built when the request goes out (not when the change is queued), so it always
-  // carries the ids the previous save handed back.
+  // carries the ids the previous save handed back. On a shared bill, a save that clashes with
+  // someone else's change is refused: the screen then shows the latest and you make it again.
   const save = useAutosave(
     async () => {
       const sent: DraftPayload = draftToReceipt(draftRef.current, currency)
-      return { sent, saved: await put.mutateAsync(sent.body) }
+      try {
+        return { sent, saved: await put.mutateAsync(sent.body), reset: false }
+      } catch (err) {
+        if (!isBillChanged(err)) throw err
+        await qc.refetchQueries({ queryKey: qk.bill(bill.id), exact: true })
+        toast((err as ApiError).message, 'danger')
+        return { sent, saved: qc.getQueryData<BillOut>(qk.bill(bill.id)) ?? bill, reset: true }
+      }
     },
-    { delay: 700, onSaved: ({ sent, saved }) => commit(mergeSaved(draftRef.current, sent, saved)) },
+    {
+      delay: 700,
+      onSaved: ({ sent, saved, reset }) => {
+        synced.current = saved.version
+        commit(reset ? draftFromBill(saved) : mergeSaved(draftRef.current, sent, saved))
+      },
+    },
   )
+  // Someone else's change landed (live refresh) while nothing here was unsaved: show it.
+  const synced = useRef(bill.version)
+  useEffect(() => {
+    if (bill.version === synced.current || save.dirty || save.saving) return
+    synced.current = bill.version
+    if (bill.updated_by_name) commit(draftFromBill(bill)) // eslint-disable-line react-hooks/set-state-in-effect -- mirrors someone else's save
+  }, [bill, save.dirty, save.saving])
   const update = (fn: (d: ReceiptDraft) => ReceiptDraft) => {
     let next = fn(draftRef.current)
     if (next.charges.some((c) => c.percentTyped)) next = { ...next, charges: refreshPercents(next.charges, itemsTotal(next.items, currency), currency) }
@@ -108,7 +129,8 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
         setConfirmOpen(true)
         return
       }
-      await patch.mutateAsync({ status: 'assigning' })
+      // someone else's finished bill stays finished; you just go on to who had what
+      if (!(bill.role === 'member' && bill.status === 'complete')) await patch.mutateAsync({ status: 'assigning' })
       navigate(`/bills/${bill.id}/assign`)
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Couldn’t continue. Try again.', 'danger')
@@ -175,15 +197,15 @@ function ReviewScreen({ bill }: { bill: BillOut }) {
             <SelectField
               label="Currency"
               value={currency}
-              disabled={busy || bill.currency_locked}
-              hint={bill.currency_locked ? 'Locked after the first payment' : undefined}
+              disabled={busy || bill.currency_locked || bill.role === 'member'}
+              hint={bill.currency_locked ? 'Locked after the first payment' : bill.role === 'member' ? `${bill.owner_name} sets the currency` : undefined}
               onChange={(e) => void switchCurrency(e.target.value)}
             >
               <CurrencyOptions />
             </SelectField>
           </div>
 
-          {detected && detected !== currency && !dismissedCurrency && !bill.currency_locked && (
+          {detected && detected !== currency && !dismissedCurrency && !bill.currency_locked && bill.role !== 'member' && (
             <Notice tone="warn">
               This receipt looks like it’s in {detected}.
               <span className="mt-1 flex flex-wrap gap-x-5">

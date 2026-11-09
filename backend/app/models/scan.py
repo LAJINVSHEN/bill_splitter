@@ -182,6 +182,7 @@ class ShareLink(Base):
 
 
 CLAIM_STATUSES = ("claimed", "confirmed", "rejected", "withdrawn", "superseded", "reverted")
+CLAIM_VIAS = ("person_link", "group_link", "app")
 
 
 class PaymentClaim(Base):
@@ -200,6 +201,10 @@ class PaymentClaim(Base):
         UUID(as_uuid=True), ForeignKey("share_links.id", ondelete="SET NULL")
     )
     via: Mapped[str] = mapped_column(Text, nullable=False)
+    # The signed-in account that said so (in the app, or a share link of a linked friend).
+    claimed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
+    )
     amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)  # effective currency
     currency: Mapped[str] = mapped_column(String(3), nullable=False)
     expected_total_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)  # their total when they claimed
@@ -211,7 +216,7 @@ class PaymentClaim(Base):
     __table_args__ = (
         ForeignKeyConstraint(["bill_id", "person_id"], ["bill_participants.bill_id", "bill_participants.person_id"],
                              ondelete="CASCADE"),
-        CheckConstraint("via IN ('person_link', 'group_link')", name="via"),
+        CheckConstraint(f"via IN {CLAIM_VIAS}", name="via"),
         CheckConstraint("amount_cents > 0", name="amount_positive"),
         CheckConstraint("currency ~ '^[A-Z]{3}$'", name="currency"),
         CheckConstraint(f"status IN {CLAIM_STATUSES}", name="status"),

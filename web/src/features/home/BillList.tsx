@@ -38,6 +38,8 @@ interface ListProps {
 
 function DeleteControl({ bill, onDelete, deletingId }: Pick<ListProps, 'onDelete' | 'deletingId'> & { bill: BillSummaryOut }) {
   if (!onDelete) return null
+  // someone else's bill: only they can delete it (keep the column so rows line up)
+  if (bill.role === 'member') return <span aria-hidden="true" className="h-11 w-11 shrink-0" />
   return (
     <Button
       variant="quiet"

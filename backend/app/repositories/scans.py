@@ -69,9 +69,8 @@ async def files_for_bill(db: AsyncSession, bill_id: UUID) -> list[ReceiptFile]:
     return list((await db.scalars(stmt)).all())
 
 
-async def get_file(db: AsyncSession, owner_id: UUID, bill_id: UUID, file_id: UUID) -> ReceiptFile | None:
-    return await db.scalar(select(ReceiptFile).where(ReceiptFile.id == file_id, ReceiptFile.bill_id == bill_id,
-                                                     ReceiptFile.owner_id == owner_id))
+async def get_file(db: AsyncSession, bill_id: UUID, file_id: UUID) -> ReceiptFile | None:
+    return await db.scalar(select(ReceiptFile).where(ReceiptFile.id == file_id, ReceiptFile.bill_id == bill_id))
 
 
 async def expired_files(db: AsyncSession, now: datetime, limit: int = 200) -> list[ReceiptFile]:

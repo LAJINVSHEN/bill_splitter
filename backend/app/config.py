@@ -138,6 +138,7 @@ class Settings(BaseSettings):
     rate_limit_admin_create: str = "20/hour"
     max_json_body_bytes: int = 256 * 1024
     cron_secret: str = ""
+    rate_limit_friend_requests: str = "10/minute;40/day"  # per account; same answer whether the account exists
     rate_limit_claims: str = "10/minute"  # public "I've paid" per IP (plus a per-link daily cap in the DB)
     # Share links are HMAC(secret, link id) so a link can be shown again; rotating it kills every derived link.
     share_token_secret: str = ""

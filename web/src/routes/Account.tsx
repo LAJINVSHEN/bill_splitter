@@ -13,6 +13,7 @@ import { scanPauseText } from '@/features/home/scanPause'
 import { ApiError } from '@/lib/api'
 import { authClient } from '@/lib/auth'
 import { cn } from '@/lib/cn'
+import { env } from '@/lib/env'
 import { CURRENCIES } from '@/lib/money'
 
 type Open = null | 'name' | 'note' | 'password' | { rate: RateDraft }
@@ -187,7 +188,35 @@ export default function AccountPage() {
           </section>
         </div>
 
-        <div className="min-w-0">
+        <div className="flex min-w-0 flex-col gap-7 md:gap-9">
+          {/* How friends find you: the exact email or user id, unless you'd rather not be found. */}
+          <Section id="friends-title" title="Friends">
+            <Row label="Your user id">
+              <span className="num truncate text-base font-semibold">@{user.username}</span>
+            </Row>
+            {user.email && !user.email.endsWith(`@${env.authEmailDomain}`) && (
+              <Row label="Email">
+                <span className="min-w-0 truncate text-base font-semibold">{user.email}</span>
+              </Row>
+            )}
+            <Row label="Friends can find me" htmlFor="discoverable">
+              <input
+                id="discoverable"
+                type="checkbox"
+                role="switch"
+                checked={user.discoverable ?? true}
+                disabled={update.isPending}
+                onChange={(e) =>
+                  update.mutate(
+                    { discoverable: e.target.checked },
+                    { onSuccess: (m) => toast(m.discoverable ? 'Friends can find you by email or user id' : 'Only people you ask can add you') },
+                  )
+                }
+                className="peer h-6 w-11 shrink-0 cursor-pointer appearance-none rounded-full bg-rule-2 transition-colors before:block before:h-5 before:w-5 before:translate-x-0.5 before:translate-y-0.5 before:rounded-full before:bg-white before:shadow before:transition-transform checked:bg-cobalt checked:before:translate-x-[22px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cobalt"
+              />
+            </Row>
+          </Section>
+
           <Section id="signin-title" title="Profile and sign-in">
             <Row label="Name">
               <Button variant="quiet" className="min-w-0 max-w-[60%] justify-end" onClick={() => setOpen('name')}>

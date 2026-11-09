@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import Conflict, NotFound
@@ -14,6 +15,7 @@ from app.middleware.auth import CurrentUser
 from app.models import Bill, PaymentClaim, Person
 from app.schemas.bills import BillOut, ClaimOut
 from app.schemas.me import InboxClaim, InboxOut
+from app.services import mailbox
 
 
 def _now() -> datetime:
@@ -72,7 +74,14 @@ async def _confirm_one(db: AsyncSession, bill: Bill, claim: PaymentClaim, amount
     part.settled_amount_cents = (part.settled_amount_cents or 0) + (amount_cents or claim.amount_cents)
     part.settled_at = _now()
     claim.status, claim.decided_at = "confirmed", _now()
-    bill.updated_at = _now()
+    if claim.claimed_by and claim.claimed_by != bill.owner_id:
+        await mailbox.notify(db, claim.claimed_by, "claim_confirmed", actor_id=bill.owner_id, bill_id=bill.id)
+
+
+async def _settled(db: AsyncSession, bill: Bill, user: CurrentUser) -> None:
+    from app.services import collab
+
+    await collab.record(db, bill, user, "settlement")
 
 
 async def _claim(db: AsyncSession, user: CurrentUser, bill_id: UUID, claim_id: UUID) -> PaymentClaim:
@@ -87,44 +96,97 @@ async def confirm(db: AsyncSession, user: CurrentUser, bill_id: UUID, claim_id: 
                   amount_cents: int | None) -> BillOut:
     from app.services.bills import _reload_out, load_bill
 
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+    bill = await load_bill(db, user, bill_id, for_update=True, owner_only=True)
     claim = await _claim(db, user, bill_id, claim_id)
     if claim.status == "claimed":
         await _confirm_one(db, bill, claim, amount_cents)
+        await _settled(db, bill, user)
         await db.commit()
     elif claim.status != "confirmed":  # confirming twice is fine; anything else was decided otherwise
         raise Conflict("claim_closed", "This payment was already handled.")
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
 async def reject(db: AsyncSession, user: CurrentUser, bill_id: UUID, claim_id: UUID) -> BillOut:
     from app.services.bills import _reload_out, load_bill
 
-    await load_bill(db, user.id, bill_id, for_update=True)
+    await load_bill(db, user, bill_id, for_update=True, owner_only=True)
     claim = await _claim(db, user, bill_id, claim_id)
     if claim.status == "claimed":
         claim.status, claim.decided_at = "rejected", _now()
+        if claim.claimed_by and claim.claimed_by != user.id:
+            await mailbox.notify(db, claim.claimed_by, "claim_rejected", actor_id=user.id, bill_id=bill_id)
         await db.commit()
     elif claim.status != "rejected":
         raise Conflict("claim_closed", "This payment was already handled.")
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
 async def confirm_all(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> BillOut:
     from app.services.bills import _reload_out, load_bill
 
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+    bill = await load_bill(db, user, bill_id, for_update=True, owner_only=True)
     rows = (await db.scalars(select(PaymentClaim).where(PaymentClaim.bill_id == bill_id,
                                                         PaymentClaim.owner_id == user.id,
                                                         PaymentClaim.status == "claimed").with_for_update())).all()
     for claim in rows:
         await _confirm_one(db, bill, claim, None)
     if rows:
+        await _settled(db, bill, user)
         await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
+
+
+async def has_open_for(db: AsyncSession, bill_id: UUID, person_id: UUID) -> bool:
+    return bool(await db.scalar(select(PaymentClaim.id).where(PaymentClaim.bill_id == bill_id,
+                                                              PaymentClaim.person_id == person_id,
+                                                              PaymentClaim.status == "claimed").limit(1)))
 
 
 async def has_open(db: AsyncSession, bill_id: UUID) -> bool:
     return bool(await db.scalar(select(PaymentClaim.id).where(PaymentClaim.bill_id == bill_id,
                                                               PaymentClaim.status == "claimed").limit(1)))
 
+
+
+# ---------------------------------------------------------------------------- in the app
+async def claim_mine(db: AsyncSession, user: CurrentUser, bill_id: UUID, client_key: UUID) -> BillOut:
+    """ "I've paid" from someone on a shared bill (signed in, so no link needed). Full amount
+    still owed; the owner confirms it like any other claim."""
+    from app.services.bills import _reload_out, load_bill
+    from app.services.split_view import split_out
+
+    bill = await load_bill(db, user, bill_id, for_update=True)
+    mine = next((p for p in split_out(bill, viewer_id=user.id).people if p.is_self), None)
+    if mine is None:
+        raise NotFound("Participant")
+    open_claim = await db.scalar(select(PaymentClaim.id).where(PaymentClaim.bill_id == bill.id,
+                                                               PaymentClaim.person_id == mine.person_id,
+                                                               PaymentClaim.status == "claimed"))
+    if open_claim is None:
+        if bill.status != "complete":
+            raise Conflict("claims_closed", "The bill is still being edited. Try again in a little while.")
+        if mine.is_payer:
+            raise Conflict("is_payer", "The person who paid the bill doesn't owe anything.")
+        if mine.outstanding_cents <= 0:
+            raise Conflict("nothing_owed", "Nothing left to pay on this bill.")
+        db.add(PaymentClaim(bill_id=bill.id, person_id=mine.person_id, owner_id=bill.owner_id, via="app",
+                            claimed_by=user.id, amount_cents=mine.outstanding_cents,
+                            currency=bill.settle_currency or bill.currency,
+                            expected_total_cents=mine.effective_total_cents, client_key=client_key))
+        try:
+            await db.commit()
+        except IntegrityError:  # a parallel tap won
+            await db.rollback()
+    return await _reload_out(db, user, bill_id)
+
+
+async def withdraw_mine(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> BillOut:
+    from app.services.bills import _reload_out, load_bill
+
+    await load_bill(db, user, bill_id)
+    await db.execute(update(PaymentClaim).where(PaymentClaim.bill_id == bill_id, PaymentClaim.claimed_by == user.id,
+                                                PaymentClaim.status == "claimed")
+                     .values(status="withdrawn", decided_at=_now()))
+    await db.commit()
+    return await _reload_out(db, user, bill_id)

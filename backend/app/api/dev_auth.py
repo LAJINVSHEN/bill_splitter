@@ -8,6 +8,7 @@ SUPABASE_ADMIN_BACKEND=fake. Lets the frontend and Playwright E2E run locally an
 from __future__ import annotations
 
 import hmac
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
@@ -61,6 +62,13 @@ async def dev_login(data: DevLoginIn, db: DB, services: ServicesDep) -> DevToken
     fake = _fake_admin(services)
     ident = data.username.strip().lower()
     profile = await db.scalar(select(Profile).where(or_(Profile.username == ident, func.lower(Profile.email) == ident)))
+    if profile is None and "@" in ident and settings.dev_login_password and hmac.compare_digest(
+            settings.dev_login_password.encode(), data.password.encode()):
+        # Stands in for a Google sign-in by someone without an account (to try "Ask for access").
+        user_id = uuid.uuid5(uuid.NAMESPACE_URL, f"dev-google:{ident}")
+        token, ttl = mint_dev_token(settings, user_id, email=ident,
+                                    user_metadata={"full_name": ident.split("@")[0].replace(".", " ").title()})
+        return DevTokenOut(access_token=token, expires_in=ttl)
     if profile is None:
         raise _invalid()
     known = fake.users.get(profile.id, {}).get("password")
