@@ -1,8 +1,6 @@
-import { Link } from 'react-router'
-import { Wordmark } from '@/components/Brand'
 import { useMe, useSummary, useUsage } from '@/data/queries'
 import { InProgress, RecentBills, StartBill } from '@/features/home/HomeSections'
-import { ToConfirm } from '@/features/home/ToConfirm'
+import { WaitingOnYou } from '@/features/mailbox/WaitingOnYou'
 import { HomeBalance } from '@/features/settle/YourBalance'
 
 /** Home: start a bill (scan first), your balance, resume one, and the latest ones. Who-owes-whom lives on People. */
@@ -13,25 +11,11 @@ export default function HomePage() {
   const homeCurrency = me.data?.default_currency ?? summary.data?.home.currency ?? 'SGD'
 
   return (
-    <div className="flex flex-col gap-8 pt-4 md:gap-12 md:pt-10">
-      {/* phones have no sidebar: the wordmark and a way to the account live here */}
-      <header className="flex items-center justify-between md:hidden">
-        <Wordmark size="sm" />
-        {me.data && (
-          <Link
-            to="/account"
-            aria-label="Account"
-            className="grid h-11 w-11 place-items-center rounded-full border-[1.5px] border-ink text-[15px] font-bold text-ink"
-          >
-            {(me.data.display_name.trim()[0] ?? '?').toUpperCase()}
-          </Link>
-        )}
-      </header>
-
+    <div className="flex flex-col gap-8 pt-1 md:gap-12 md:pt-10">
       <h1 className="sr-only">Home</h1>
 
-      {/* friends' "I've paid" come first: they're waiting on you */}
-      <ToConfirm />
+      {/* anything waiting on you (friends' "I've paid", requests) first: a line into the Mailbox */}
+      <WaitingOnYou />
 
       {/* Starting a bill is the first thing on the page; scanning/uploading leads. */}
       <StartBill usage={usage.data} />

@@ -55,6 +55,11 @@ class Bill(Base):
     fx_rate: Mapped[Decimal | None] = mapped_column(Numeric)
     receipt_meta: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Bumped by every write; a save sent from an older version is checked against the edit log.
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = created_at_col()
     updated_at: Mapped[datetime] = updated_at_col()
 

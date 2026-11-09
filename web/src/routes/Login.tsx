@@ -5,7 +5,8 @@ import { Wordmark } from '@/components/Brand'
 import { Button } from '@/components/Button'
 import { Notice } from '@/components/Display'
 import { TextField } from '@/components/Field'
-import { AuthError, authClient } from '@/lib/auth'
+import { AskForAccess } from '@/features/account/AskForAccess'
+import { AuthError, authClient, NEXT_KEY } from '@/lib/auth'
 
 const PROBLEMS: Record<string, string> = {
   not_provisioned: 'This account isn’t set up yet. Ask the admin to finish it.',
@@ -32,6 +33,8 @@ export default function Login() {
   const [busy, setBusy] = useState<'password' | 'google' | null>(null)
 
   if (status === 'signedIn' && !problem) return <Navigate to={next} replace />
+  // signed in with Google, but no account for that email: ask the admin for one
+  const asking = status === 'signedIn' && problem === 'not_provisioned'
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -55,6 +58,7 @@ export default function Login() {
     setBusy('google')
     setError(null)
     try {
+      if (next !== '/') sessionStorage.setItem(NEXT_KEY, next)
       await authClient.signInWithGoogle()
     } catch (err) {
       setError(err instanceof AuthError ? err.message : 'Google sign-in failed.')
@@ -67,6 +71,7 @@ export default function Login() {
       <Wordmark size="lg" />
       <p className="mt-3.5 text-[17px] text-ink-2">Scan it, split it, call it even.</p>
 
+      {asking ? <AskForAccess /> : (<>
       {notice && (
         <div className="mt-8">
           <Notice tone="danger">{notice}</Notice>
@@ -116,7 +121,15 @@ export default function Login() {
         </>
       )}
 
-      <p className="mt-auto pt-10 text-[15px] leading-relaxed text-ink-2">No account? Accounts are set up by the admin — ask them for a username.</p>
+      </>)}
+
+      {!asking && (
+        <p className="mt-auto pt-10 text-[15px] leading-relaxed text-ink-2">
+          {authClient.supportsGoogle
+            ? 'No account? Continue with Google to ask the admin for one.'
+            : 'No account? Accounts are set up by the admin — ask them for a username.'}
+        </p>
+      )}
     </main>
   )
 }

@@ -4,6 +4,8 @@ import { Link, useBlocker, useNavigate } from 'react-router'
 import { Button } from '@/components/Button'
 import { Dialog, SlowNetworkBar } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
+import { Together } from '@/features/live/Together'
+import { useDraftGuard } from '@/features/live/useLiveBill'
 import { cn } from '@/lib/cn'
 
 /** Thrown by a `save.flush` that can't save on its own (e.g. a form saved by its own button). */
@@ -45,6 +47,8 @@ export function FlowShell({
   const forced = useRef(false)
   const saving = mutating || Boolean(save?.saving)
   const unsaved = Boolean(save?.dirty || save?.error != null)
+  // a shared bill's live refresh waits while this screen has something unsaved
+  useDraftGuard(billId ?? '', Boolean(billId) && (unsaved || saving))
   const blocker = useBlocker(({ currentLocation, nextLocation }) =>
     !forced.current && currentLocation.pathname !== nextLocation.pathname && (unsaved || saving),
   )
@@ -121,6 +125,7 @@ export function FlowShell({
       <div className="px-5 pb-1 pt-1 md:hidden">
         <StepTrack steps={steps} current={current} links={links} />
       </div>
+      {billId && <Together billId={billId} className="px-5 pt-1 md:px-[var(--app-gutter)] md:pt-3" />}
       <main className={cn('px-5 md:px-[var(--app-gutter)]', footer ? 'pb-36 md:pb-10' : 'pb-14')}>
         <fieldset disabled={exiting} className="min-w-0">{children}</fieldset>
       </main>

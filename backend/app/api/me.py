@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -79,10 +80,12 @@ CodePath = Annotated[str, Path(min_length=3, max_length=3)]
 @router.get("/settle-up", response_model=SettleUpOut)
 async def settle_up(user: CurrentUserDep, db: DB,
                     combine: Annotated[str | None, Query(min_length=3, max_length=3, description=(
-                        "Merge every currency into this one with the saved rates"))] = None) -> SettleUpOut:
+                        "Merge every currency into this one with the saved rates"))] = None,
+                    group_id: Annotated[UUID | None, Query(description="Only this group's people")] = None,
+                    ) -> SettleUpOut:
     """Open debts across complete bills: as the bills say (``original``) and as the fewest
     payments (``simplified``), per currency unless ``combine`` merges them."""
-    return await settle_svc.settle_up(db, user, _code(combine) if combine else None)
+    return await settle_svc.settle_up(db, user, _code(combine) if combine else None, group_id)
 
 
 @router.post("/settle-up/payments", response_model=SettleUpOut)

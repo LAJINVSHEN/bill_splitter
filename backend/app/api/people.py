@@ -9,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.middleware.auth import CurrentUserDep
 from app.schemas.people import PeopleList, PersonCreate, PersonOut, PersonPatch
+from app.schemas.social import PersonLinkIn
+from app.services import links as links_svc
 from app.services import people as svc
 
 router = APIRouter(prefix="/people", tags=["people"])
@@ -46,4 +48,18 @@ async def delete_person(person_id: UUID, user: CurrentUserDep, db: DB, permanent
         await svc.delete_person(db, user.id, person_id)
     else:
         await svc.archive_person(db, user.id, person_id)
+    return Response(status_code=204)
+
+
+@router.post("/{person_id}/link", status_code=204)
+async def link_person(person_id: UUID, data: PersonLinkIn, user: CurrentUserDep, db: DB) -> Response:
+    """Ask a friend to take over this placeholder: on their yes, its bills are shared with them."""
+    await links_svc.invite(db, user, person_id, data.account_id)
+    return Response(status_code=204)
+
+
+@router.delete("/{person_id}/link", status_code=204)
+async def unlink_person(person_id: UUID, user: CurrentUserDep, db: DB) -> Response:
+    """Take back a link invite that hasn't been answered."""
+    await links_svc.cancel(db, user, person_id)
     return Response(status_code=204)

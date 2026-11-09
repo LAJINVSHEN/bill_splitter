@@ -18,7 +18,7 @@ from app.core.money import round_half_up
 from app.core.receipt_validation import ReceiptCharge, ReceiptItem, infer_charge_kind, validate_receipt
 from app.errors import BadRequest, Conflict, NotFound
 from app.middleware.auth import CurrentUser
-from app.models import Bill, BillCharge, BillItem, BillParticipant, ItemShare, ShareLink
+from app.models import Bill, BillCharge, BillEdit, BillItem, BillParticipant, ItemShare, Profile, ShareLink
 from app.models.scan import ACTIVE_JOB_STATUSES, ExtractionJob, OcrCache, ReceiptFile
 from app.pagination import decode_cursor, encode_cursor
 from app.repositories import bills as bills_repo
@@ -41,7 +41,10 @@ from app.schemas.bills import (
     ShareOut,
 )
 from app.schemas.common import Page
+from app.schemas.social import LiveOut, Viewer
 from app.services import claims as claims_svc
+from app.services import collab, mailbox
+from app.services import friends as friends_svc
 from app.services import fx
 from app.services.container import Services
 from app.services.people import ensure_self
@@ -52,19 +55,25 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
-async def load_bill(db: AsyncSession, owner_id: UUID, bill_id: UUID, *, for_update: bool = False) -> Bill:
-    bill = await bills_repo.get_bill(db, owner_id, bill_id, full=True, for_update=for_update)
-    if bill is None:
-        raise NotFound("Bill")
-    return bill
+async def load_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, *, for_update: bool = False,
+                    owner_only: bool = False) -> Bill:
+    return await collab.load(db, user, bill_id, for_update=for_update, owner_only=owner_only)
 
 
-async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
+async def bill_out(db: AsyncSession, bill: Bill, viewer_id: UUID) -> BillOut:
+    """The bill as ``viewer_id`` sees it: "is_self" is them, and a member sees only their own claim."""
     validation = validate_bill(bill)
     job = await scans_repo.latest_job(db, bill.id)
     files = await scans_repo.files_for_bill(db, bill.id)
     claims = await claims_svc.open_claims(db, bill.id)
     now = _now()
+    owned = bill.owner_id == viewer_id
+    mine = next((p.person_id for p in bill.participants if p.person.account_id == viewer_id), None)
+    linked = {p.person.linked_profile_id for p in bill.participants if p.person.linked_profile_id}
+    names = dict((await db.execute(select(Profile.id, Profile.display_name).where(
+        Profile.id.in_({bill.owner_id} | ({bill.updated_by} if bill.updated_by else set()))))).all())
+    usernames = dict((await db.execute(select(Profile.id, Profile.username).where(
+        Profile.id.in_(linked)))).all()) if linked else {}
     return BillOut(
         id=bill.id, title=bill.title, merchant=bill.merchant, bill_date=bill.bill_date, currency=bill.currency,
         status=bill.status, source=bill.source, payer_person_id=effective_payer(bill),
@@ -73,6 +82,9 @@ async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
         effective_currency=effective_currency(bill), currency_locked=currency_locked(bill) or bool(claims),
         receipt_meta=bill.receipt_meta or {},
         created_at=bill.created_at, updated_at=bill.updated_at,
+        version=bill.version, role="owner" if owned else "member", owner_name=names.get(bill.owner_id, ""),
+        shared=bool(linked - {viewer_id}) or not owned, my_person_id=mine,
+        updated_by_name=names.get(bill.updated_by) if bill.updated_by and bill.updated_by != viewer_id else None,
         items=[ItemOut(id=i.id, position=i.position, name=i.name, details=i.details, quantity=i.quantity,
                        unit_price_cents=i.unit_price_cents, total_price_cents=i.total_price_cents,
                        split_mode=i.split_mode,
@@ -81,24 +93,27 @@ async def bill_out(db: AsyncSession, bill: Bill) -> BillOut:
                for i in bill.items],
         charges=[ChargeOut.model_validate(c) for c in bill.charges],
         participants=[ParticipantOut(person_id=p.person_id, name=p.person.name, color_seed=p.person.color_seed,
-                                     is_self=p.person.is_self, position=p.position, settled_at=p.settled_at,
-                                     settled_amount_cents=p.settled_amount_cents)
+                                     is_self=p.person.account_id == viewer_id, position=p.position,
+                                     settled_at=p.settled_at, settled_amount_cents=p.settled_amount_cents,
+                                     account_id=p.person.account_id,
+                                     username=usernames.get(p.person.linked_profile_id) if p.person.linked_profile_id
+                                     else None, is_owner=p.person.is_self)
                       for p in bill.participants],
         validation=validation_out(validation, [i.id for i in bill.items]) if validation else None,
-        split=split_out(bill),
+        split=split_out(bill, viewer_id=viewer_id),
         latest_job=JobBrief(id=job.id, status=job.status, error_code=job.error_code, retryable=job.retryable,
                             detected_currency=job.detected_currency) if job else None,
         files=[FileOut(id=f.id, job_id=f.job_id, mime=f.mime, bytes=f.bytes, pages=f.pages, position=f.position,
                        created_at=f.created_at, expires_at=f.expires_at,
                        available=f.deleted_at is None and f.expires_at > now)
                for f in files],
-        claims=claims,
+        claims=claims if owned else [c for c in claims if c.person_id == mine],
     )
 
 
-async def _reload_out(db: AsyncSession, owner_id: UUID, bill_id: UUID) -> BillOut:
+async def _reload_out(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> BillOut:
     db.expunge_all()
-    return await bill_out(db, await load_bill(db, owner_id, bill_id))
+    return await bill_out(db, await load_bill(db, user, bill_id), user.id)
 
 
 # ---------------------------------------------------------------------------- CRUD
@@ -106,17 +121,36 @@ async def create_bill(db: AsyncSession, user: CurrentUser, data: BillCreate) -> 
     me = await ensure_self(db, user.id, user.display_name)
     bill = Bill(owner_id=user.id, title=data.title, merchant=data.merchant, bill_date=data.bill_date,
                 currency=data.currency or user.default_currency, source=data.source, status="draft",
-                payer_person_id=me.id, receipt_meta={})
+                payer_person_id=me.id, receipt_meta={}, updated_by=user.id)
     db.add(bill)
     await db.flush()
     db.add(BillParticipant(bill_id=bill.id, person_id=me.id, position=0))
+    db.add(BillEdit(bill_id=bill.id, actor_id=user.id, version=1, kind="created"))
     me.last_used_at = _now()
     await db.commit()
-    return await _reload_out(db, user.id, bill.id)
+    return await _reload_out(db, user, bill.id)
 
 
 async def get_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> BillOut:
-    return await bill_out(db, await load_bill(db, user.id, bill_id))
+    return await bill_out(db, await load_bill(db, user, bill_id), user.id)
+
+
+async def live(db: AsyncSession, user: CurrentUser, bill_id: UUID, known_version: int | None) -> LiveOut:
+    """Cheap poll for an open bill page: the version, who else is here, and the bill if it moved on."""
+    row = (await db.execute(select(Bill.version, Bill.updated_at, Bill.updated_by).where(
+        Bill.id == bill_id, Bill.deleted_at.is_(None), bills_repo.visible_to(user.id)))).first()
+    if row is None:
+        raise NotFound("Bill")
+    version, updated_at, updated_by = row
+    me = await ensure_self(db, user.id, user.display_name)
+    here = collab.presence.touch(bill_id, user.id, user.display_name, me.color_seed)
+    who = await db.scalar(select(Profile.display_name).where(Profile.id == updated_by)) if updated_by else None
+    changed = known_version is not None and known_version != version
+    out = LiveOut(version=version, updated_at=updated_at, updated_by=who,
+                  viewers=[Viewer(name=s.name, color_seed=s.color_seed, is_self=uid == user.id) for uid, s in here],
+                  bill=(await get_bill(db, user, bill_id)).model_dump(mode="json") if changed else None)
+    await db.commit()
+    return out
 
 
 async def list_bills(db: AsyncSession, user: CurrentUser, statuses: list[str] | None, limit: int,
@@ -132,14 +166,20 @@ async def list_bills(db: AsyncSession, user: CurrentUser, statuses: list[str] | 
             return Page[BillSummaryOut](items=[], next_cursor=None)
         statuses = ["complete"]
     items: list[BillSummaryOut] = []
+    owners: dict[UUID, str] = {}
     while len(items) <= limit:
         rows = await bills_repo.list_bills(db, user.id, statuses=statuses, limit=limit + 1, after=after)
+        missing = {b.owner_id for b in rows} - owners.keys()
+        if missing:
+            owners |= dict((await db.execute(select(Profile.id, Profile.display_name)
+                                             .where(Profile.id.in_(missing)))).all())
         for bill in rows:
-            split = split_out(bill)
+            split = split_out(bill, viewer_id=user.id)
             unsettled_count = sum(person.outstanding_cents > 0 for person in split.people)
             if settled is not None and (unsettled_count == 0) != settled:
                 continue
             validation = validate_bill(bill)
+            owned = bill.owner_id == user.id
             items.append(BillSummaryOut(
                 id=bill.id, title=bill.title, merchant=bill.merchant, bill_date=bill.bill_date,
                 currency=bill.currency, status=bill.status, source=bill.source,
@@ -149,6 +189,8 @@ async def list_bills(db: AsyncSession, user: CurrentUser, statuses: list[str] | 
                 unassigned_item_count=len(split.unassigned_item_ids),
                 price_issue_count=len(validation.warnings) if validation else 0,
                 validation_issue_count=len(validation.errors) if validation else 0,
+                role="owner" if owned else "member", owner_name=None if owned else owners.get(bill.owner_id),
+                shared=not owned or any(p.person.linked_profile_id for p in bill.participants),
                 created_at=bill.created_at, updated_at=bill.updated_at,
             ))
             if len(items) > limit:
@@ -163,8 +205,12 @@ async def list_bills(db: AsyncSession, user: CurrentUser, statuses: list[str] | 
 
 
 async def patch_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: BillPatch) -> BillOut:
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+    """The owner's fields. Someone else on the bill may only move a draft along the flow."""
+    bill = await load_bill(db, user, bill_id, for_update=True)
     fields = data.model_fields_set
+    if not collab.is_owner(bill, user) and (fields - {"status"} or data.status == "complete"
+                                            or bill.status == "complete"):
+        raise collab.OwnerOnly(await collab.owner_name(db, bill))
     if "status" in fields and data.status is not None:
         if bill.status == "scanning":
             raise Conflict("scan_in_progress", "Wait for the scan to finish (or cancel it) first.")
@@ -172,14 +218,17 @@ async def patch_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: B
     for name in ("title", "merchant", "bill_date"):
         if name in fields:
             setattr(bill, name, getattr(data, name))
+    currency_before = (bill.currency, bill.settle_currency, bill.fx_rate)
     await _apply_currency_changes(db, user, bill, data, fields)
     if "payer_person_id" in fields:
         if data.payer_person_id is not None and data.payer_person_id not in {p.person_id for p in bill.participants}:
             raise BadRequest("payer_not_participant", "The payer must be one of the people on this bill.")
         bill.payer_person_id = data.payer_person_id
-    bill.updated_at = _now()
+    kind = ("currency" if (bill.currency, bill.settle_currency, bill.fx_rate) != currency_before
+            else "details" if fields & {"title", "merchant", "bill_date", "payer_person_id"} else "status")
+    await collab.record(db, bill, user, kind)
     await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
 async def delete_bill(db: AsyncSession, user: CurrentUser, bill_id: UUID, services: Services,
@@ -208,8 +257,8 @@ async def _delete_bills(db: AsyncSession, user: CurrentUser, services: Services,
     await db.execute(update(ReceiptFile).where(ReceiptFile.bill_id.in_(bill_ids), ReceiptFile.deleted_at.is_(None))
                      .values(expires_at=now))
     await db.commit()
-    job_ids = list((await db.scalars(select(ExtractionJob.id).where(
-        ExtractionJob.owner_id == user.id, ExtractionJob.bill_id.in_(bill_ids),
+    job_ids = list((await db.scalars(select(ExtractionJob.id).where(  # anyone's scans of these bills
+        ExtractionJob.bill_id.in_(bill_ids),
     ))).all())
     await db.execute(update(ExtractionJob).where(
         ExtractionJob.id.in_(job_ids), ExtractionJob.status.in_(ACTIVE_JOB_STATUSES),
@@ -347,20 +396,25 @@ class ChargeSpec:
 
 
 async def replace_receipt(db: AsyncSession, bill: Bill, items: list[ItemSpec], charges: list[ChargeSpec],
-                          subtotal_cents: int | None, grand_total_cents: int | None) -> None:
+                          subtotal_cents: int | None, grand_total_cents: int | None) -> set[UUID]:
     """Write items/charges/totals in place (single write path for manual edits and scans).
-    Items whose ``id`` matches keep their assignment; missing items are deleted."""
+    Items whose ``id`` matches keep their assignment; missing items are deleted. Returns the
+    existing items it changed or removed (for the edit log)."""
     existing = {i.id: i for i in bill.items}
     keep_ids = {s.id for s in items if s.id is not None}
     unknown = keep_ids - existing.keys()
     if unknown:
         raise BadRequest("unknown_item", "One of the items doesn't belong to this bill.")
     drop = [iid for iid in existing if iid not in keep_ids]
+    touched = set(drop)
     if drop:
         await db.execute(delete(BillItem).where(BillItem.id.in_(drop)).execution_options(synchronize_session=False))
     for pos, spec in enumerate(items):
         if spec.id is not None:
             row = existing[spec.id]
+            if (row.name, row.quantity, row.unit_price_cents, row.total_price_cents, row.details) != (
+                    spec.name, spec.quantity, spec.unit_price_cents, spec.total_price_cents, spec.details):
+                touched.add(spec.id)
             row.position, row.name, row.quantity = pos, spec.name, spec.quantity
             row.unit_price_cents, row.total_price_cents = spec.unit_price_cents, spec.total_price_cents
             row.details = spec.details
@@ -385,14 +439,17 @@ async def replace_receipt(db: AsyncSession, bill: Bill, items: list[ItemSpec], c
                           kind=spec.kind or infer_charge_kind(spec.name, spec.amount_cents), percent=pct))
     bill.tax_scenario = result.tax_scenario if result.ok else None
     bill.updated_at = _now()
+    return touched
 
 
-async def put_receipt(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: ReceiptIn) -> BillOut:
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+async def put_receipt(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: ReceiptIn,
+                      base_version: int | None = None) -> BillOut:
+    bill = await load_bill(db, user, bill_id, for_update=True)
     if bill.status == "scanning":
         raise Conflict("scan_in_progress", "Wait for the scan to finish (or cancel it) first.")
+    await collab.check_base(db, bill, user, base_version, "receipt")
     stored = {i.id: i.details for i in bill.items}
-    await replace_receipt(
+    touched = await replace_receipt(
         db, bill,
         # An existing item keeps its folded details unless the client sends the field.
         [ItemSpec(i.id, i.name, i.quantity, i.unit_price_cents, i.total_price_cents,
@@ -405,8 +462,9 @@ async def put_receipt(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: 
         bill.merchant = data.merchant
     if "bill_date" in data.model_fields_set:
         bill.bill_date = data.bill_date
+    await collab.record(db, bill, user, "receipt", touched)
     await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
 # ---------------------------------------------------------------------------- people on the bill
@@ -418,6 +476,9 @@ async def _set_participants(db: AsyncSession, user: CurrentUser, bill: Bill, per
     new_ids = [pid for pid in person_ids if pid not in current]
     if any(people[pid].archived_at is not None for pid in new_ids):
         raise BadRequest("person_archived", "That person was removed from your people list.")
+    joining = {people[pid].linked_profile_id for pid in new_ids if people[pid].linked_profile_id}
+    if joining - await friends_svc.friend_ids(db, user.id):
+        raise BadRequest("not_friends", "You can only add accounts you're friends with.")
     removed = [pid for pid in current if pid not in set(person_ids)]
     if removed:
         await db.execute(delete(BillParticipant).where(BillParticipant.bill_id == bill.id,
@@ -441,18 +502,24 @@ async def _set_participants(db: AsyncSession, user: CurrentUser, bill: Bill, per
             .execution_options(synchronize_session=False)
         )
     await people_repo.touch_used(db, user.id, new_ids, _now())
+    for account in joining - {user.id}:  # the bill is now shared with them
+        await mailbox.notify(db, account, "bill_added", actor_id=user.id, bill_id=bill.id, coalesce=True)
     bill.updated_at = _now()
 
 
 async def put_participants(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: ParticipantsIn) -> BillOut:
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+    bill = await load_bill(db, user, bill_id, for_update=True, owner_only=True)
     await _set_participants(db, user, bill, data.person_ids)
+    await collab.record(db, bill, user, "people")
     await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
-async def put_assignments(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: AssignmentsIn) -> BillOut:
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+async def put_assignments(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: AssignmentsIn,
+                          base_version: int | None = None) -> BillOut:
+    bill = await load_bill(db, user, bill_id, for_update=True)
+    touched = [a.item_id for a in data.assignments]
+    await collab.check_base(db, bill, user, base_version, "shares", touched)
     items = {i.id: i for i in bill.items}
     participants = {p.person_id for p in bill.participants}
     for a in data.assignments:
@@ -470,20 +537,22 @@ async def put_assignments(db: AsyncSession, user: CurrentUser, bill_id: UUID, da
                 "amount_cents": s.amount_cents if a.mode == "custom" else None,
             })
     # Core statements (not session.add) so stale share objects in the identity map never clash.
-    await db.execute(delete(ItemShare).where(ItemShare.item_id.in_([a.item_id for a in data.assignments]))
+    await db.execute(delete(ItemShare).where(ItemShare.item_id.in_(touched))
                      .execution_options(synchronize_session=False))
     if rows:
         await db.execute(insert(ItemShare), rows)
-    bill.updated_at = _now()
+    await collab.record(db, bill, user, "shares", touched)
     await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
-async def put_quick(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: QuickSplitIn) -> BillOut:
+async def put_quick(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: QuickSplitIn,
+                    base_version: int | None = None) -> BillOut:
     """Quick split = one synthetic item ("Total") shared equally, by shares or by exact amounts."""
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+    bill = await load_bill(db, user, bill_id, for_update=True, owner_only=True)
     if bill.status == "scanning":
         raise Conflict("scan_in_progress", "Wait for the scan to finish (or cancel it) first.")
+    await collab.check_base(db, bill, user, base_version, "quick")
     person_ids = [p.person_id for p in data.participants]
     await db.execute(delete(BillItem).where(BillItem.bill_id == bill.id).execution_options(synchronize_session=False))
     await db.execute(delete(BillCharge).where(BillCharge.bill_id == bill.id)
@@ -506,15 +575,30 @@ async def put_quick(db: AsyncSession, user: CurrentUser, bill_id: UUID, data: Qu
     bill.tax_scenario = "no_taxes"
     if data.title is not None:
         bill.title = data.title
-    bill.updated_at = _now()
+    await collab.record(db, bill, user, "quick")
     await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
 # ---------------------------------------------------------------------------- settle-up
+def can_settle(bill: Bill, user: CurrentUser) -> bool:
+    """The owner, or whoever the money goes to (they say "Received")."""
+    if bill.owner_id == user.id:
+        return True
+    payer = effective_payer(bill)
+    return any(p.person_id == payer and p.person.account_id == user.id for p in bill.participants)
+
+
+async def _settler(db: AsyncSession, user: CurrentUser, bill_id: UUID) -> Bill:
+    bill = await load_bill(db, user, bill_id, for_update=True)
+    if not can_settle(bill, user):
+        raise collab.OwnerOnly(await collab.owner_name(db, bill))
+    return bill
+
+
 async def settle(db: AsyncSession, user: CurrentUser, bill_id: UUID, person_id: UUID,
                  amount_cents: int | None) -> BillOut:
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+    bill = await _settler(db, user, bill_id)
     part = next((p for p in bill.participants if p.person_id == person_id), None)
     if part is None:
         raise NotFound("Participant")
@@ -526,24 +610,24 @@ async def settle(db: AsyncSession, user: CurrentUser, bill_id: UUID, person_id: 
     if part.settled_at is None or part.settled_amount_cents != amount_cents:  # idempotent repeat = no-op
         part.settled_at = _now()
         part.settled_amount_cents = amount_cents
-        bill.updated_at = _now()
         await claims_svc.supersede(db, bill.id, person_id)
+        await collab.record(db, bill, user, "settlement")
         await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
 async def unsettle(db: AsyncSession, user: CurrentUser, bill_id: UUID, person_id: UUID) -> BillOut:
-    bill = await load_bill(db, user.id, bill_id, for_update=True)
+    bill = await _settler(db, user, bill_id)
     part = next((p for p in bill.participants if p.person_id == person_id), None)
     if part is None:
         raise NotFound("Participant")
     if part.settled_at is not None:
         part.settled_at = None
         part.settled_amount_cents = None
-        bill.updated_at = _now()
         await claims_svc.revert(db, bill.id, person_id)
+        await collab.record(db, bill, user, "settlement")
         await db.commit()
-    return await _reload_out(db, user.id, bill_id)
+    return await _reload_out(db, user, bill_id)
 
 
 def parse_bill_date(value: Any) -> date | None:

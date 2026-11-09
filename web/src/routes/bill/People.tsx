@@ -3,7 +3,7 @@ import { Navigate, useNavigate } from 'react-router'
 import { FlowShell } from '@/app/FlowShell'
 import { EqualsMark } from '@/components/Brand'
 import { Button } from '@/components/Button'
-import { Notice } from '@/components/Display'
+import { Avatar, Notice } from '@/components/Display'
 import { isJobActive, useMe, usePatchBill, usePutParticipants } from '@/data/queries'
 import type { BillOut, UUID } from '@/lib/types'
 import { itemsAddUp, STEPS, stepLinks } from '@/features/bill/flow'
@@ -75,7 +75,7 @@ function PeopleScreen({ bill }: { bill: BillOut }) {
       {/* Desktop: people on the left, the receipt's progress in a rail on the right. */}
       <div className="flex flex-col gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_var(--app-rail-w)] xl:items-start xl:gap-x-[var(--app-gutter)]">
         <div className="xl:col-span-2">
-          <StepTitle>Who’s splitting?</StepTitle>
+          <StepTitle sub={bill.role === 'member' ? `${bill.owner_name}’s bill: they choose who’s on it` : undefined}>Who’s splitting?</StepTitle>
         </div>
         <div className="min-w-0 xl:col-start-2 xl:row-start-2 xl:border-l xl:border-rule xl:pl-[var(--app-gutter)]">
           <ScanStrip bill={bill} onManual={() => void next()} manualBusy={leaving} />
@@ -83,13 +83,25 @@ function PeopleScreen({ bill }: { bill: BillOut }) {
         <div className="flex min-w-0 flex-col gap-4 xl:col-start-1 xl:row-start-2">
           {save.error != null && <SaveError error={save.error} onRetry={save.retry} />}
           {patch.error && <Notice tone="danger">{patch.error.message}</Notice>}
-          <PeoplePicker
-            selected={selected}
-            onChange={change}
-            known={bill.participants.map((p) => ({ id: p.person_id, name: p.name, color_seed: p.color_seed, is_self: p.is_self }))}
-            locked={selfId ? [selfId] : []}
-            note={(id) => (id === bill.payer_person_id ? 'paid' : null)}
-          />
+          {bill.role === 'member' ? (
+            <ul aria-label="People on this bill" className="border-t-[1.5px] border-ink">
+              {bill.participants.map((p) => (
+                <li key={p.person_id} className="flex min-h-[52px] items-center gap-3 border-b border-rule">
+                  <Avatar name={p.name} seed={p.color_seed} />
+                  <span className="min-w-0 flex-1 truncate text-[16px] font-semibold">{p.is_self ? 'You' : p.name}</span>
+                  {p.person_id === bill.payer_person_id && <span className="text-[14px] font-semibold text-ink-2">paid</span>}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <PeoplePicker
+              selected={selected}
+              onChange={change}
+              known={bill.participants.map((p) => ({ id: p.person_id, name: p.name, color_seed: p.color_seed, is_self: p.is_self }))}
+              locked={selfId ? [selfId] : []}
+              note={(id) => (id === bill.payer_person_id ? 'paid' : null)}
+            />
+          )}
         </div>
       </div>
     </FlowShell>

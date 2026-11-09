@@ -59,9 +59,11 @@ export function peopleCount(n: number): string {
   return n === 1 ? '1 person' : `${n} people`
 }
 
-export function participantNames(bill: { participant_count: number; participant_names?: string[] }): string {
-  if (!bill.participant_names?.length) return peopleCount(bill.participant_count)
+/** "Maya, Arjun +2"; on someone else's shared bill, whose it is comes first ("George’s · You, Maya"). */
+export function participantNames(bill: { participant_count: number; participant_names?: string[]; owner_name?: string | null }): string {
+  const owner = bill.owner_name ? `${bill.owner_name.split(' ')[0]}’s · ` : ''
+  if (!bill.participant_names?.length) return owner + peopleCount(bill.participant_count)
   const names = bill.participant_names.slice(0, 2).join(', ')
   const overflow = Math.max(bill.participant_count, bill.participant_names.length) - 2
-  return overflow > 0 ? `${names} +${overflow}` : names
+  return owner + (overflow > 0 ? `${names} +${overflow}` : names)
 }

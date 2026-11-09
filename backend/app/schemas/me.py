@@ -22,6 +22,8 @@ class MeOut(OutputModel):
     self_person_id: UUID
     created_at: datetime
     open_claims_count: int  # friends' "I've paid" waiting for a Confirm
+    discoverable: bool = True  # others can send a friend request to your exact email / user id
+    mailbox_count: int = 0  # requests waiting on you + unread updates
 
 
 def _blank_to_none(v: str | None) -> str | None:
@@ -33,6 +35,7 @@ class MePatch(InputModel):
     default_currency: Currency | None = None
     # Trimmed; "" or null clears it.
     payment_note: Annotated[str | None, Field(max_length=200), AfterValidator(_blank_to_none)] = None
+    discoverable: bool | None = None
 
 
 PauseReason = Literal["scans_disabled", "provider_quota", "user_quota", "global_page_cap", "llm_budget"]
@@ -117,10 +120,12 @@ class InboxOut(OutputModel):
 
 
 class SettlePerson(OutputModel):
-    person_id: UUID
+    person_id: UUID  # your entry for them when you have one
     name: str
     color_seed: int
     is_self: bool
+    account_id: UUID | None = None  # people are matched by account across everyone's bills
+    owner_name: str | None = None  # someone else's placeholder ("Kim" on Ben's bill)
 
 
 class SettlePayment(OutputModel):
@@ -148,6 +153,7 @@ class SettleGroup(OutputModel):
     original: list[SettlePayment]  # who owes whom, as the bills say (one row per pair)
     simplified: list[SettlePayment]  # fewest payments, same net balances
     cancel_out: list[SettlePerson]  # people whose debts cancel in a loop: clear them, no money moves
+    separate: list[SettlePayment] = []  # group view: debts with a placeholder, as the bills say (never simplified)
     debts: list[SettleDebt]  # every open bill debt in this group, newest bill first
 
 
@@ -157,6 +163,7 @@ class SettlePiece(OutputModel):
     bill_id: UUID
     person_id: UUID
     amount_cents: int
+    pending: bool = False  # sent as an "I've paid" to the bill's owner instead of settled
 
 
 class SettleUpOut(OutputModel):
@@ -171,12 +178,14 @@ class SettlePieceIn(InputModel):
     bill_id: UUID
     person_id: UUID
     amount_cents: Annotated[int, Field(gt=0)]
+    pending: bool = False
 
 
 class SettleUndoIn(InputModel):
     """Take back a recorded row: subtract exactly what it marked paid."""
 
     combine: Currency | None = None
+    group_id: UUID | None = None
     pieces: Annotated[list[SettlePieceIn], Field(min_length=1, max_length=500)]
 
 
@@ -184,8 +193,9 @@ class SettleRecordIn(InputModel):
     """Record one row of the plan as paid. The server recomputes the plan and refuses (409
     ``plan_changed``) unless the row still matches, so a stale screen can't settle the wrong debts."""
 
-    view: Literal["original", "simplified", "cancel_out"]
+    view: Literal["original", "simplified", "cancel_out", "separate"]
     combine: Currency | None = None  # the merge target the plan was computed with
+    group_id: UUID | None = None  # the group the plan was computed for
     currency: Currency  # the group's currency
     from_person_id: UUID | None = None  # null for cancel_out
     to_person_id: UUID | None = None

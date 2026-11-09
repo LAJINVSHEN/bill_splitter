@@ -4,6 +4,7 @@ import { PageTitle, SectionTitle } from '@/components/Display'
 import { Dialog } from '@/components/Feedback'
 import { Icon } from '@/components/Icon'
 import { useAdminSettings, useAdminUsage, useAdminUsers } from '@/data/queries'
+import { AccessRequests } from '@/features/admin/AccessRequests'
 import { AccountsList, EditUserDialog } from '@/features/admin/Accounts'
 import { useIsDesktop } from '@/features/admin/bits'
 import { NewAccountForm } from '@/features/admin/NewAccount'
@@ -24,6 +25,8 @@ export default function AdminPage() {
   return (
     <div className="flex flex-col gap-9 pb-4">
       <PageTitle>Admin</PageTitle>
+
+      <AccessRequests />
 
       {usage.isPending ? (
         <SectionLoader label="Loading usage" />

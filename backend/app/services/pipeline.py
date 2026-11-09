@@ -361,13 +361,14 @@ class JobRunner:
 
     async def _apply_stage(self, job_id: UUID, owner_id: UUID, bill_id: UUID, extraction: ReceiptExtraction,
                            timings: dict[str, Any]) -> None:
+        from app.services import collab
         from app.services.bills import ChargeSpec, ItemSpec, parse_bill_date, replace_receipt
 
         async with self.sm() as db:
             job = await db.scalar(select(ExtractionJob).where(ExtractionJob.id == job_id).with_for_update())
             if job is None or job.status not in ACTIVE_JOB_STATUSES:
                 raise JobGone
-            bill = await bills_repo.get_bill(db, owner_id, bill_id, full=True, for_update=True)
+            bill = await bills_repo.get_bill_any_owner(db, bill_id, for_update=True)  # the job's own bill
             if bill is None:
                 raise StageFailed("bill_deleted", "This bill was deleted.", retryable=False)
             # Amounts are read in the BILL's currency; a different printed currency is only reported.
@@ -394,6 +395,7 @@ class JobRunner:
                 "notes": extraction.notes,
             }.items() if v}
             bill.status = "review"
+            await collab.record(db, bill, owner_id, "scan")
             job.status = "succeeded" if validation.ok else "needs_review"
             job.error_code = None if validation.ok else (validation.errors[0].code if validation.errors else None)
             job.error_message = None if validation.ok else validation.message

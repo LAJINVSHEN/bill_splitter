@@ -28,6 +28,10 @@ export interface MeOut {
   created_at: string
   /** friends' "I've paid" waiting for a Confirm (optional until every API has it) */
   open_claims_count?: number
+  /** others can send a friend request to your exact email or user id */
+  discoverable?: boolean
+  /** requests waiting on you + unread updates (the Mailbox badge) */
+  mailbox_count?: number
 }
 
 export interface UsageOut {
@@ -75,6 +79,10 @@ export interface SettlePerson {
   name: string
   color_seed: number
   is_self: boolean
+  /** people are matched by account across everyone's bills */
+  account_id?: UUID | null
+  /** someone else's placeholder ("Kim" on Ben's bill) */
+  owner_name?: string | null
 }
 
 export interface SettlePayment {
@@ -100,6 +108,8 @@ export interface SettleGroup {
   original: SettlePayment[]
   simplified: SettlePayment[]
   cancel_out: SettlePerson[]
+  /** group view: debts with a placeholder, as the bills say (never simplified into accounts) */
+  separate?: SettlePayment[]
   debts: SettleDebt[] // newest bill first
 }
 
@@ -107,6 +117,8 @@ export interface SettlePiece {
   bill_id: UUID
   person_id: UUID
   amount_cents: Minor // the bill's own currency
+  /** sent to the bill's owner as an "I've paid" instead of settled */
+  pending?: boolean
 }
 
 export interface SettleUpOut {
@@ -118,6 +130,7 @@ export interface SettleUpOut {
 }
 
 export type SettleView = 'original' | 'simplified'
+export type RecordView = SettleView | 'cancel_out' | 'separate'
 
 export interface FxRateOut {
   base: string
@@ -135,6 +148,11 @@ export interface PersonOut {
   last_used_at: string | null
   archived_at: string | null
   created_at: string
+  /** a friend's account; null for a placeholder (and for Me) */
+  account_id?: UUID | null
+  username?: string | null
+  /** a placeholder waiting for this friend to accept being linked */
+  pending_link_to?: string | null
 }
 
 export interface ShareOut {
@@ -173,6 +191,11 @@ export interface ParticipantOut {
   position: number
   settled_at: string | null
   settled_amount_cents: Minor | null
+  /** the account this person is; null for a placeholder */
+  account_id?: UUID | null
+  username?: string | null
+  /** the bill owner's own entry */
+  is_owner?: boolean
 }
 
 export type ValidationErrorCode =
@@ -302,8 +325,26 @@ export interface BillOut {
     detected_currency?: string | null
   } | null
   files: FileOut[]
-  /** open "I've paid" claims waiting for the owner (optional until every API has it) */
+  /** open "I've paid" claims waiting for the owner (a member sees only their own) */
   claims?: ClaimOut[]
+  /** send back as X-Bill-Version so a stale save is caught */
+  version?: number
+  /** members edit the receipt and who-had-what; the owner does everything */
+  role?: 'owner' | 'member'
+  owner_name?: string
+  /** another account can see and edit this bill */
+  shared?: boolean
+  my_person_id?: UUID | null
+  /** who saved last, when it wasn't you */
+  updated_by_name?: string | null
+}
+
+export interface LiveOut {
+  version: number
+  updated_at: string
+  updated_by: string | null
+  viewers: Array<{ name: string; color_seed: number; is_self: boolean }>
+  bill: BillOut | null
 }
 
 /** A friend said they paid through a share link; the owner confirms or says not yet. */
@@ -315,7 +356,7 @@ export interface ClaimOut {
   currency: string
   /** their total when they claimed; the bill may have changed since */
   expected_total_cents: Minor
-  via: 'person_link' | 'group_link'
+  via: 'person_link' | 'group_link' | 'app'
   created_at: string
 }
 
@@ -357,6 +398,10 @@ export interface BillSummaryOut {
   unassigned_item_count?: number
   price_issue_count?: number
   validation_issue_count?: number
+  role?: 'owner' | 'member'
+  /** set when someone else's bill is shared with you */
+  owner_name?: string | null
+  shared?: boolean
   created_at: string
   updated_at: string
 }
@@ -422,6 +467,10 @@ export interface PublicPerson {
   outstanding_cents: Minor
   effective_total_cents: Minor
   claim: PublicClaim | null
+  /** has an even account: saying "I've paid" needs them signed in */
+  has_account?: boolean
+  /** the signed-in viewer is this person */
+  is_you?: boolean
 }
 
 export interface PublicShareOut {
@@ -447,6 +496,8 @@ export interface PublicShareOut {
   claims_open: boolean
   /** false for a quick split, whose one item is just the total */
   itemised?: boolean
+  /** set when the signed-in viewer is on the bill: open it in the app */
+  bill_id?: UUID | null
 }
 
 export interface AdminUserOut {
@@ -520,4 +571,94 @@ export interface AdminSettingsOut {
   receipt_retention_days: number
   app_timezone: string
   updated_at: string
+}
+
+// ---- accounts together ------------------------------------------------------------------------
+export interface AccountBrief {
+  id: UUID
+  /** your name for them when they're in your people, else their display name */
+  name: string
+  username: string
+  color_seed: number
+}
+
+export interface FriendsOut {
+  friends: Array<{ account: AccountBrief; person_id: UUID | null; since: string }>
+  /** what you typed: whether it matched an account is never shown */
+  outgoing: Array<{ id: UUID; identifier: string; created_at: string }>
+  blocked: Array<{ account: AccountBrief; at: string }>
+  /** people you share bills with */
+  suggestions: Array<{ account: AccountBrief; shared_bills: number }>
+}
+
+export interface MailRequest {
+  kind: 'friend_request' | 'link_invite' | 'payment_claim'
+  id: UUID
+  created_at: string
+  actor: AccountBrief | null
+  person_id: UUID | null
+  person_name: string | null
+  color_seed: number | null
+  bill_id: UUID | null
+  bill_title: string | null
+  bill_date: string | null
+  bill_count: number | null
+  amount_cents: Minor | null
+  currency: string | null
+  expected_total_cents: Minor | null
+}
+
+export type MailUpdateKind =
+  | 'friend_accepted'
+  | 'friend_declined'
+  | 'link_accepted'
+  | 'link_declined'
+  | 'bill_added'
+  | 'bill_edited'
+  | 'claim_confirmed'
+  | 'claim_rejected'
+  | 'plan_sent'
+
+export interface PlanRow {
+  from: string
+  to: string
+  amount_cents: Minor
+  you_pay: boolean
+  you_get: boolean
+}
+
+export interface MailUpdate {
+  id: UUID
+  kind: MailUpdateKind
+  actor: AccountBrief | null
+  bill_id: UUID | null
+  bill_title: string | null
+  count: number
+  data: { person_name?: string; group?: string; currency?: string; rows?: PlanRow[] }
+  unread: boolean
+  at: string
+}
+
+export interface MailboxOut {
+  requests: MailRequest[]
+  updates: MailUpdate[]
+  sent: Array<{ kind: 'friend_request' | 'link_invite'; id: UUID; label: string; person_name: string | null; person_id: UUID | null; created_at: string }>
+  unread_count: number
+}
+
+export interface GroupOut {
+  id: UUID
+  name: string
+  person_ids: UUID[]
+  created_at: string
+}
+
+export interface AccessRequestOut {
+  id: UUID
+  email: string
+  name: string | null
+  note: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  decided_at: string | null
 }

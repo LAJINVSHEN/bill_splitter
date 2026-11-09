@@ -1,9 +1,19 @@
 """Settle up across bills: the original debts, the fewest-payments plan, and recording a row.
 
-Reads every open debt on the owner's complete bills (the same ``split_out`` the bill page
-uses), groups it per effective currency (or merges currencies into one with the user's saved
-rates, when asked), and hands it to the pure ``core.settle``. Recording a row writes ordinary
-partial settlements on the bills it clears, so bill pages, share links and the summary agree.
+Reads every open debt on the complete bills the user can see (the same ``split_out`` the bill
+page uses), groups it per effective currency (or merges currencies into one with the user's
+saved rates, when asked), and hands it to the pure ``core.settle``.
+
+Who is who: people are matched by account across bills. George's "Jeff" and Ben's "Jeffrey",
+both linked to Jeff's account, are one person here; placeholders stay per bill owner. On bills
+the user owns, every debt counts (as before); on bills shared with them, only their own.
+
+A group narrows it to its members' debts (on any visible bill). Debts between accounts are
+simplified; debts involving a placeholder are listed separately, never folded into an account.
+
+Recording a row writes ordinary partial settlements on the bills it clears when the user owns
+that bill or is the one being paid; any other piece becomes an "I've paid" claim the bill's
+owner confirms. Bill pages, share links and the summary always agree.
 """
 
 from __future__ import annotations
@@ -11,8 +21,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.currencies import exponent
@@ -20,7 +31,7 @@ from app.core.money import convert_minor
 from app.core.settle import Debt, Payment, Piece, by_pair, simplify
 from app.errors import Conflict, NotFound
 from app.middleware.auth import CurrentUser
-from app.models import Bill, BillParticipant
+from app.models import Bill, BillParticipant, Group, GroupMember, PaymentClaim, Person, Profile
 from app.repositories import bills as bills_repo
 from app.schemas.me import (
     SettleDebt,
@@ -33,8 +44,46 @@ from app.schemas.me import (
     SettleUpOut,
 )
 from app.services import claims as claims_svc
-from app.services import fx
+from app.services import collab, fx
+from app.services.people import ensure_self
 from app.services.split_view import effective_currency, split_out
+
+
+def key_of(person: Person) -> str:
+    """The ledger identity: the account when there is one, else this placeholder."""
+    return f"u:{person.account_id}" if person.account_id else f"p:{person.id}"
+
+
+class Viewpoint:
+    """How one user names everyone on the bills they can see."""
+
+    def __init__(self, me: Person, mine: dict[UUID, Person], names: dict[UUID, str]) -> None:
+        self.me = me
+        self.me_key = f"u:{me.owner_id}"
+        self._mine = mine  # account → the user's own entry for it
+        self._names = names  # owner id → display name (for someone else's placeholder)
+
+    @classmethod
+    async def load(cls, db: AsyncSession, user: CurrentUser) -> Viewpoint:
+        me = await ensure_self(db, user.id, user.display_name)
+        rows = (await db.scalars(select(Person).where(Person.owner_id == user.id, Person.linked_profile_id.is_not(None))
+                                 .order_by(Person.archived_at.desc().nulls_last()))).all()
+        owners = select(Bill.owner_id).where(bills_repo.visible_to(user.id), Bill.deleted_at.is_(None))
+        names = dict((await db.execute(select(Profile.id, Profile.display_name).where(Profile.id.in_(owners)))).all())
+        return cls(me, {p.linked_profile_id: p for p in rows}, names)  # type: ignore[misc]
+
+    def person(self, bill: Bill, person: Person) -> SettlePerson:
+        account = person.account_id
+        if account == self.me.owner_id:
+            p = self.me
+            return SettlePerson(person_id=p.id, name=p.name, color_seed=p.color_seed, is_self=True, account_id=account)
+        if account is not None and account in self._mine:
+            p = self._mine[account]
+            return SettlePerson(person_id=p.id, name=p.name, color_seed=p.color_seed, is_self=False,
+                                account_id=account)
+        foreign = bill.owner_id != self.me.owner_id and account is None
+        return SettlePerson(person_id=person.id, name=person.name, color_seed=person.color_seed, is_self=False,
+                            account_id=account, owner_name=self._names.get(bill.owner_id) if foreign else None)
 
 
 @dataclass
@@ -42,29 +91,55 @@ class _Ledger:
     combined_into: str | None
     currencies: list[str]
     missing_rates: list[str]
+    view: Viewpoint
     debts: dict[str, list[Debt]] = field(default_factory=dict)  # plan currency → oldest bill first
+    separate: dict[str, list[Debt]] = field(default_factory=dict)  # group: debts involving a placeholder
     bills: dict[str, Bill] = field(default_factory=dict)
     people: dict[str, SettlePerson] = field(default_factory=dict)
-    # (bill id, debtor id) → the participant row and what they still owe (bill's effective currency)
-    owed: dict[tuple[str, str], tuple[Bill, BillParticipant, int]] = field(default_factory=dict)
+    creditor: dict[str, str] = field(default_factory=dict)  # bill id → its payer's key
+    # (bill id, debtor key) → the participant rows behind it and what each still owes (bill's currency)
+    owed: dict[tuple[str, str], list[tuple[BillParticipant, int]]] = field(default_factory=dict)
 
 
-async def _ledger(db: AsyncSession, user: CurrentUser, combine: str | None, *, lock: bool = False) -> _Ledger:
+async def _group_keys(db: AsyncSession, user: CurrentUser, group_id: UUID, view: Viewpoint) -> set[str]:
+    group = await db.scalar(select(Group).where(Group.id == group_id, Group.owner_id == user.id))
+    if group is None:
+        raise NotFound("Group")
+    members = (await db.scalars(select(Person).join(GroupMember, GroupMember.person_id == Person.id)
+                                .where(GroupMember.group_id == group_id))).all()
+    return {key_of(p) for p in members} | {view.me_key}
+
+
+async def _ledger(db: AsyncSession, user: CurrentUser, combine: str | None, *, lock: bool = False,
+                  group_id: UUID | None = None) -> _Ledger:
+    view = await Viewpoint.load(db, user)
+    in_group = await _group_keys(db, user, group_id, view) if group_id else None
     rows: list[tuple[str, Bill, str, str, int]] = []  # (currency, bill, debtor, creditor, outstanding)
     people: dict[str, SettlePerson] = {}
-    owed: dict[tuple[str, str], tuple[Bill, BillParticipant, int]] = {}
+    owed: dict[tuple[str, str], list[tuple[BillParticipant, int]]] = {}
+    creditor_of: dict[str, str] = {}
     for bill in reversed(await bills_repo.bills_with_open_balances(db, user.id, for_update=lock)):
         split = split_out(bill)
         if split.payer_person_id is None:
             continue
         parts = {p.person_id: p for p in bill.participants}
+        creditor = key_of(parts[split.payer_person_id].person)
+        creditor_of[str(bill.id)] = creditor
+        owned = bill.owner_id == user.id
         for p in split.people:
-            people.setdefault(str(p.person_id), SettlePerson(person_id=p.person_id, name=p.name,
-                                                             color_seed=p.color_seed, is_self=p.is_self))
-            if p.outstanding_cents > 0:
-                rows.append((split.effective_currency, bill, str(p.person_id), str(split.payer_person_id),
-                             p.outstanding_cents))
-                owed[(str(bill.id), str(p.person_id))] = (bill, parts[p.person_id], p.outstanding_cents)
+            part = parts[p.person_id]
+            debtor = key_of(part.person)
+            if p.outstanding_cents <= 0 or debtor == creditor:
+                continue
+            if in_group is not None:
+                if debtor not in in_group or creditor not in in_group:
+                    continue
+            elif not owned and view.me_key not in (debtor, creditor):
+                continue
+            for k, person in ((debtor, part.person), (creditor, parts[split.payer_person_id].person)):
+                people.setdefault(k, view.person(bill, person))
+            rows.append((split.effective_currency, bill, debtor, creditor, p.outstanding_cents))
+            owed.setdefault((str(bill.id), debtor), []).append((part, p.outstanding_cents))
 
     currencies = sorted({r[0] for r in rows})
     rates: dict[str, Decimal] = {}
@@ -79,13 +154,20 @@ async def _ledger(db: AsyncSession, user: CurrentUser, combine: str | None, *, l
                     rates[cur] = found.rate
     merge = combine if combine and not missing else None
 
-    ledger = _Ledger(combined_into=merge, currencies=currencies, missing_rates=missing, people=people, owed=owed,
-                     bills={str(r[1].id): r[1] for r in rows})
-    for cur, bill, debtor, creditor, amount in rows:
+    ledger = _Ledger(combined_into=merge, currencies=currencies, missing_rates=missing, view=view, people=people,
+                     owed=owed, creditor=creditor_of, bills={str(r[1].id): r[1] for r in rows})
+    seen: set[tuple[str, str]] = set()
+    for cur, bill, debtor, creditor, _ in rows:
+        if (str(bill.id), debtor) in seen:  # one human twice on a bill: one debt for both rows
+            continue
+        seen.add((str(bill.id), debtor))
+        amount = sum(o for _, o in owed[(str(bill.id), debtor)])
         target = merge or cur
         plan_amount = amount if cur == target else convert_minor(amount, rates[cur], exponent(cur), exponent(target))
-        ledger.debts.setdefault(target, []).append(
-            Debt(bill_id=str(bill.id), debtor=debtor, creditor=creditor, amount=plan_amount, original=amount))
+        debt = Debt(bill_id=str(bill.id), debtor=debtor, creditor=creditor, amount=plan_amount, original=amount)
+        placeholder = debtor.startswith("p:") or creditor.startswith("p:")
+        bucket = ledger.separate if in_group is not None and placeholder else ledger.debts
+        bucket.setdefault(target, []).append(debt)
     return ledger
 
 
@@ -103,8 +185,9 @@ def _debt(ledger: _Ledger, d: Debt) -> SettleDebt:
 
 def _out(ledger: _Ledger) -> SettleUpOut:
     groups = []
-    for cur in sorted(ledger.debts):
-        debts = ledger.debts[cur]
+    for cur in sorted(ledger.debts.keys() | ledger.separate.keys()):
+        debts = ledger.debts.get(cur, [])
+        separate = ledger.separate.get(cur, [])
         plan = simplify(debts)
         cancel_people = sorted({x.debtor for x in plan.cancel_out}
                                | {d.creditor for d in debts for x in plan.cancel_out
@@ -115,14 +198,15 @@ def _out(ledger: _Ledger) -> SettleUpOut:
             original=[_payment(ledger, p) for p in by_pair(debts)],
             simplified=[_payment(ledger, p) for p in plan.payments],
             cancel_out=[ledger.people[pid] for pid in cancel_people],
-            debts=[_debt(ledger, d) for d in reversed(debts)],
+            separate=[_payment(ledger, p) for p in by_pair(separate)],
+            debts=[_debt(ledger, d) for d in reversed(debts + separate)],
         ))
     return SettleUpOut(combined_into=ledger.combined_into, currencies=ledger.currencies,
                        missing_rates=ledger.missing_rates, groups=groups)
 
 
-async def settle_up(db: AsyncSession, user: CurrentUser, combine: str | None) -> SettleUpOut:
-    out = _out(await _ledger(db, user, combine))
+async def settle_up(db: AsyncSession, user: CurrentUser, combine: str | None, group_id: UUID | None = None) -> SettleUpOut:
+    out = _out(await _ledger(db, user, combine, group_id=group_id))
     await db.commit()
     return out
 
@@ -132,9 +216,10 @@ def _pieces_for(ledger: _Ledger, data: SettleRecordIn) -> tuple[Piece, ...]:
     if data.view == "cancel_out":
         pieces = simplify(debts).cancel_out
     else:
-        rows = by_pair(debts) if data.view == "original" else simplify(debts).payments
-        row = next((p for p in rows if p.payer == str(data.from_person_id) and p.payee == str(data.to_person_id)
-                    and p.amount == data.amount_cents), None)
+        rows = (by_pair(debts) if data.view == "original" else by_pair(ledger.separate.get(data.currency, []))
+                if data.view == "separate" else simplify(debts).payments)
+        row = next((p for p in rows if ledger.people[p.payer].person_id == data.from_person_id
+                    and ledger.people[p.payee].person_id == data.to_person_id and p.amount == data.amount_cents), None)
         pieces = row.pieces if row else ()
     if not pieces:
         raise Conflict("plan_changed", "Balances changed since this was shown. Here's the latest.")
@@ -142,36 +227,68 @@ def _pieces_for(ledger: _Ledger, data: SettleRecordIn) -> tuple[Piece, ...]:
 
 
 async def record(db: AsyncSession, user: CurrentUser, data: SettleRecordIn) -> SettleUpOut:
-    """Mark one row paid: add each cleared piece to that participant's settled amount."""
-    ledger = await _ledger(db, user, data.combine, lock=True)
+    """Mark one row paid. Pieces on bills the user owns, or where they're the one paid, are
+    settled now; the rest become "I've paid" claims for those bills' owners."""
+    ledger = await _ledger(db, user, data.combine, lock=True, group_id=data.group_id)
     now = datetime.now(UTC)
-    pieces = _pieces_for(ledger, data)
-    for piece in pieces:
-        bill, part, outstanding = ledger.owed[(piece.bill_id, piece.debtor)]
-        paid = (part.settled_amount_cents or 0) if part.settled_at else 0
-        part.settled_amount_cents = paid + piece.amount
-        part.settled_at = now
-        bill.updated_at = now
-        if piece.amount >= outstanding:  # paid off: a friend's pending "I've paid" has nothing left to decide
-            await claims_svc.supersede(db, bill.id, UUID(piece.debtor))
+    applied: list[SettlePiece] = []
+    touched: dict[str, Bill] = {}
+    for piece in _pieces_for(ledger, data):
+        bill = ledger.bills[piece.bill_id]
+        direct = bill.owner_id == user.id or ledger.creditor[piece.bill_id] == ledger.view.me_key
+        left = piece.amount
+        entries = ledger.owed[(piece.bill_id, piece.debtor)]
+        for n, (part, outstanding) in enumerate(entries):
+            amount = left if n == len(entries) - 1 else min(left, outstanding)
+            if amount <= 0:
+                continue
+            left -= amount
+            if direct:
+                paid = (part.settled_amount_cents or 0) if part.settled_at else 0
+                part.settled_amount_cents = paid + amount
+                part.settled_at = now
+                touched[piece.bill_id] = bill
+                if amount >= outstanding:  # paid off: a pending "I've paid" has nothing left to decide
+                    await claims_svc.supersede(db, bill.id, part.person_id)
+            elif not await claims_svc.has_open_for(db, bill.id, part.person_id):
+                db.add(PaymentClaim(bill_id=bill.id, person_id=part.person_id, owner_id=bill.owner_id, via="app",
+                                    claimed_by=user.id, amount_cents=amount, currency=effective_currency(bill),
+                                    expected_total_cents=outstanding, client_key=uuid4()))
+            else:
+                continue
+            applied.append(SettlePiece(bill_id=bill.id, person_id=part.person_id, amount_cents=amount,
+                                       pending=not direct))
+    for bill in touched.values():
+        await collab.record(db, bill, user, "settlement")
     await db.commit()
-    out = await settle_up(db, user, data.combine)
-    out.applied = [SettlePiece(bill_id=UUID(p.bill_id), person_id=UUID(p.debtor), amount_cents=p.amount) for p in pieces]
+    out = await settle_up(db, user, data.combine, data.group_id)
+    out.applied = applied
     return out
 
 
 async def undo(db: AsyncSession, user: CurrentUser, data: SettleUndoIn) -> SettleUpOut:
-    """Reverse a recorded row: subtract each piece again. A payment that drops back to nothing
-    is unmarked entirely (and a confirmed "I've paid" no longer stands)."""
-    by_bill: dict[UUID, list[tuple[UUID, int]]] = {}
+    """Reverse a recorded row: subtract each piece again, and take back the claims it sent. A
+    payment that drops back to nothing is unmarked entirely (and a confirmed claim no longer stands)."""
+    from app.services.bills import can_settle
+
+    by_bill: dict[UUID, list[tuple[UUID, int, bool]]] = {}
     for p in data.pieces:
-        by_bill.setdefault(p.bill_id, []).append((p.person_id, p.amount_cents))
+        by_bill.setdefault(p.bill_id, []).append((p.person_id, p.amount_cents, p.pending))
     for bill_id in sorted(by_bill):
-        bill = await bills_repo.get_bill(db, user.id, bill_id, full=True, for_update=True)
+        bill = await bills_repo.get_visible_bill(db, user.id, bill_id, full=True, for_update=True)
         if bill is None:
             raise NotFound("Bill")
         parts = {p.person_id: p for p in bill.participants}
-        for person_id, amount in by_bill[bill_id]:
+        changed = False
+        for person_id, amount, pending in by_bill[bill_id]:
+            if pending:
+                await db.execute(update(PaymentClaim).where(
+                    PaymentClaim.bill_id == bill_id, PaymentClaim.person_id == person_id,
+                    PaymentClaim.claimed_by == user.id, PaymentClaim.status == "claimed",
+                ).values(status="withdrawn", decided_at=datetime.now(UTC)))
+                continue
+            if not can_settle(bill, user):
+                raise collab.OwnerOnly(await collab.owner_name(db, bill))
             part = parts.get(person_id)
             paid = (part.settled_amount_cents or 0) if part is not None and part.settled_at else 0
             if part is None or paid < amount:
@@ -182,6 +299,11 @@ async def undo(db: AsyncSession, user: CurrentUser, data: SettleUndoIn) -> Settl
                 await claims_svc.revert(db, bill.id, person_id)
             else:
                 part.settled_amount_cents = paid - amount
-        bill.updated_at = datetime.now(UTC)
+            changed = True
+        if changed:
+            await collab.record(db, bill, user, "settlement")
     await db.commit()
-    return await settle_up(db, user, data.combine)
+    return await settle_up(db, user, data.combine, data.group_id)
+
+
+__all__ = ["Viewpoint", "key_of", "record", "settle_up", "undo"]

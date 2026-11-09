@@ -1,6 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useRef } from 'react'
-import { qk, usePutAssignments, type AssignmentIn } from '@/data/queries'
+import { useToast } from '@/components/Feedback'
+import { isBillChanged, qk, usePutAssignments, type AssignmentIn } from '@/data/queries'
+import { ApiError } from '@/lib/api'
 import type { BillOut, UUID } from '@/lib/types'
 import { applyAssignments } from './assignment'
 import { useAutosave } from './useAutosave'
@@ -10,13 +12,26 @@ const BURST_MS = 400
 /**
  * Optimistic painting: each tap updates the cached bill at once (the screen previews with the TS
  * split mirror), taps in a burst are coalesced into one PUT /assignments, and the server's bill
- * replaces the preview. Failed edits remain visible and queued for retry.
+ * replaces the preview. Failed edits remain visible and queued for retry. On a shared bill, taps
+ * that clash with someone else's change to the same items are dropped and the latest is shown.
  */
 export function useAssignments(billId: UUID) {
   const qc = useQueryClient()
   const put = usePutAssignments(billId)
+  const toast = useToast()
   const pending = useRef(new Map<UUID, AssignmentIn>())
-  const save = useAutosave((list: AssignmentIn[]) => put.mutateAsync(list), {
+  const send = async (list: AssignmentIn[]) => {
+    try {
+      return await put.mutateAsync(list)
+    } catch (err) {
+      if (!isBillChanged(err)) throw err
+      pending.current.clear()
+      await qc.refetchQueries({ queryKey: qk.bill(billId), exact: true })
+      toast((err as ApiError).message, 'danger')
+      return qc.getQueryData<BillOut>(qk.bill(billId)) as BillOut
+    }
+  }
+  const save = useAutosave(send, {
     delay: BURST_MS,
     onSaved: (saved, sent) => {
       sent.forEach((assignment) => {

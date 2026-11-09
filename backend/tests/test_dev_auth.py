@@ -104,10 +104,11 @@ async def test_dev_seed_is_idempotent_and_loginable(ctx: Ctx, dev_password: str)
     assert await ctx.sql("SELECT (SELECT count(*) FROM profiles), (SELECT count(*) FROM people), "
                          "(SELECT count(*) FROM bills), (SELECT count(*) FROM bill_items), "
                          "(SELECT count(*) FROM fx_rates), (SELECT count(*) FROM bill_participants)") == counts
-    assert counts[0][:3] == (5, 10, 3)  # 5 users (+5 self people, +5 saved people for george), 3 bills
+    # 5 users (+5 self people, +5 saved people for george, +4 friend entries / Sam), 3 bills + Maya's brunch
+    assert counts[0][:3] == (5, 14, 4)
 
     bills = {b["title"]: b for b in (await ctx.client.get("/api/bills", headers=h)).json()["items"]}
-    assert set(bills) == {"Saturday hotpot", "Kyoto ramen night", "Team lunch"}
+    assert set(bills) == {"Saturday hotpot", "Kyoto ramen night", "Team lunch", "Tiong Bahru brunch"}  # + shared by Maya
     hot = (await ctx.client.get(f"/api/bills/{hotpot}", headers=h)).json()
     assert hot["status"] == "complete" and hot["validation"]["ok"] and hot["split"]["is_complete"]
     settled = [p for p in hot["split"]["people"] if p["settled_at"]]

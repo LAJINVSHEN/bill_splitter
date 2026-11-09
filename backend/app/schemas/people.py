@@ -20,6 +20,9 @@ class PersonOut(OutputModel):
     last_used_at: datetime | None
     archived_at: datetime | None
     created_at: datetime
+    account_id: UUID | None = None  # a friend's account (null: a placeholder; "Me" is null too)
+    username: str | None = None
+    pending_link_to: str | None = None  # a placeholder waiting for this friend to accept the link
 
 
 class PeopleList(OutputModel):

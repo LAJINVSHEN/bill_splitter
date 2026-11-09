@@ -123,7 +123,8 @@ async def create_scan(db: AsyncSession, svc: Services, user: CurrentUser, bill_i
                 raise Conflict("idempotency_key_reused", "This Idempotency-Key was already used for another bill.")
             return ScanCreated(job_id=existing.id, status=existing.status, replayed=True)
 
-    bill = await bills_repo.get_bill(db, user.id, bill_id, for_update=True)
+    # Anyone on a shared bill may scan its receipt; the scan counts against the scanner's quota.
+    bill = await bills_repo.get_visible_bill(db, user.id, bill_id, for_update=True)
     if bill is None:
         raise NotFound("Bill")
     if key and (existing := await repo.get_job_by_key(db, user.id, key)) is not None:
@@ -192,10 +193,17 @@ async def _cleanup(svc: Services, paths: list[str]) -> None:
             logger.warning("could not clean up %d uploaded file(s)", len(paths))
 
 
-async def get_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: UUID) -> JobOut:
-    job = await repo.get_job(db, user.id, job_id)
-    if job is None:
+async def _visible_job(db: AsyncSession, user: CurrentUser, job_id: UUID) -> ExtractionJob:
+    """A scan on a bill the user can see (whoever started it)."""
+    job = await repo.get_job_by_id(db, job_id)
+    if job is None or (job.owner_id != user.id
+                       and await bills_repo.get_visible_bill(db, user.id, job.bill_id) is None):
         raise NotFound("Job")
+    return job
+
+
+async def get_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: UUID) -> JobOut:
+    job = await _visible_job(db, user, job_id)
     # Lazy recovery: an active job nobody is running and whose heartbeat went stale.
     if job.status in ACTIVE_JOB_STATUSES and not svc.runner.is_running(job.id):
         last = job.heartbeat_at or job.created_at
@@ -208,9 +216,7 @@ async def get_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: UU
 
 
 async def cancel_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: UUID) -> JobOut:
-    job = await repo.get_job(db, user.id, job_id)
-    if job is None:
-        raise NotFound("Job")
+    job = await _visible_job(db, user, job_id)
     if await mark_job_failed(db, job.id, "cancelled", "Scan cancelled.", retryable=True, status="cancelled"):
         await db.commit()
         await svc.runner.cancel(job.id)
@@ -219,12 +225,12 @@ async def cancel_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id:
 
 
 async def retry_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: UUID) -> JobOut:
-    job = await repo.get_job(db, user.id, job_id)
-    if job is None:
-        raise NotFound("Job")
+    job = await _visible_job(db, user, job_id)
     if job.status not in ("failed", "cancelled") or not job.retryable:
         raise Conflict("not_retryable", "This scan can't be retried.")
-    bill = await bills_repo.get_bill(db, user.id, job.bill_id, for_update=True)
+    if job.owner_id != user.id:  # a retry spends the scanner's quota: they start it, or you scan again
+        raise Conflict("not_retryable", "Someone else started this scan. Scan the receipt again to retry it yourself.")
+    bill = await bills_repo.get_visible_bill(db, user.id, job.bill_id, for_update=True)
     if bill is None:
         raise NotFound("Bill")
     other = await repo.active_job_for_bill(db, bill.id)
@@ -259,9 +265,9 @@ async def retry_job(db: AsyncSession, svc: Services, user: CurrentUser, job_id: 
 
 
 async def file_url(db: AsyncSession, svc: Services, user: CurrentUser, bill_id: UUID, file_id: UUID) -> SignedUrlOut:
-    if await bills_repo.get_bill(db, user.id, bill_id) is None:
+    if await bills_repo.get_visible_bill(db, user.id, bill_id) is None:
         raise NotFound("Bill")
-    f = await repo.get_file(db, user.id, bill_id, file_id)
+    f = await repo.get_file(db, bill_id, file_id)
     if f is None:
         raise NotFound("File")
     if f.deleted_at is not None or f.expires_at <= datetime.now(UTC):

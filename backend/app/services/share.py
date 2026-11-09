@@ -220,8 +220,10 @@ async def _latest_claims(db: AsyncSession, bill_id: UUID) -> dict[UUID, PaymentC
     return latest
 
 
-async def _view(db: AsyncSession, settings: Settings, link: ShareLink, bill: Bill, split: SplitOut) -> PublicShareOut:
+async def _view(db: AsyncSession, settings: Settings, link: ShareLink, bill: Bill, split: SplitOut,
+                viewer: CurrentUser | None = None) -> PublicShareOut:
     claims = await _latest_claims(db, bill.id)
+    accounts = {p.person_id: p.person.account_id for p in bill.participants}
 
     def person(p: SplitPersonOut) -> PublicPerson:
         c = claims.get(p.person_id)
@@ -233,7 +235,9 @@ async def _view(db: AsyncSession, settings: Settings, link: ShareLink, bill: Bil
                             settled=p.outstanding_cents == 0, outstanding_cents=p.outstanding_cents,
                             effective_total_cents=p.effective_total_cents,
                             claim=PublicClaim(status=c.status, amount_cents=c.amount_cents, created_at=c.created_at)
-                            if c else None)
+                            if c else None,
+                            has_account=accounts.get(p.person_id) is not None,
+                            is_you=viewer is not None and accounts.get(p.person_id) == viewer.id)
 
     payer_row = next((p for p in split.people if p.is_payer), None)
     host = await db.get(Profile, bill.owner_id)
@@ -252,12 +256,15 @@ async def _view(db: AsyncSession, settings: Settings, link: ShareLink, bill: Bil
                           host_name=host.display_name if host else "",
                           payer_is_host=bool(payer_row and payer_row.is_self),
                           claims_open=bill.status == "complete" and split.outstanding_total_cents > 0,
-                          itemised=bill.source != "quick")
+                          itemised=bill.source != "quick",
+                          bill_id=bill.id if viewer is not None and (
+                              viewer.id == bill.owner_id or viewer.id in accounts.values()) else None)
 
 
-async def public_view(db: AsyncSession, settings: Settings, token: str) -> PublicShareOut:
+async def public_view(db: AsyncSession, settings: Settings, token: str,
+                      viewer: CurrentUser | None = None) -> PublicShareOut:
     link, bill, split = await _resolve(db, token)
-    out = await _view(db, settings, link, bill, split)
+    out = await _view(db, settings, link, bill, split, viewer)
     await db.execute(update(ShareLink).where(ShareLink.id == link.id).values(last_viewed_at=datetime.now(UTC)))
     await db.commit()
     return out
@@ -268,9 +275,16 @@ class TooManyClaims(AppError):
         super().__init__(429, "too_many_claims", "Too many payment updates on this link today. Try again tomorrow.")
 
 
-async def public_claim(db: AsyncSession, settings: Settings, token: str, data: PublicClaimIn) -> PublicShareOut:
+class SignInRequired(AppError):
+    def __init__(self, name: str) -> None:
+        super().__init__(403, "sign_in_required", f"{name} has an even account: sign in as {name} to say you've paid.")
+
+
+async def public_claim(db: AsyncSession, settings: Settings, token: str, data: PublicClaimIn,
+                       viewer: CurrentUser | None = None) -> PublicShareOut:
     """ "I've paid" for the person on a personal link, or the person picked on a group link. Always
-    the full amount still owed; repeating it (same tap retried, or a second tap) changes nothing."""
+    the full amount still owed; repeating it (same tap retried, or a second tap) changes nothing.
+    Someone with an account must be signed in as themselves (a link can be forwarded)."""
     link, bill, split = await _resolve(db, token)
     if link.person_id is not None:
         person_id = link.person_id
@@ -281,6 +295,7 @@ async def public_claim(db: AsyncSession, settings: Settings, token: str, data: P
         if person_id is None:
             raise BadRequest("unknown_person", "That name isn't on this bill any more. Reload the page.")
     mine = next(p for p in split.people if p.person_id == person_id)
+    account = next(p.person.account_id for p in bill.participants if p.person_id == person_id)
 
     repeat = await db.scalar(select(PaymentClaim.id).where(PaymentClaim.share_link_id == link.id,
                                                            PaymentClaim.client_key == data.client_key))
@@ -294,6 +309,8 @@ async def public_claim(db: AsyncSession, settings: Settings, token: str, data: P
             raise Conflict("is_payer", "The person who paid the bill doesn't owe anything.")
         if mine.outstanding_cents <= 0:
             raise Conflict("nothing_owed", "Nothing left to pay on this bill.")
+        if account is not None and (viewer is None or viewer.id != account):
+            raise SignInRequired(mine.name)
         since = datetime.now(UTC) - timedelta(days=1)
         today = await db.scalar(select(func.count()).select_from(PaymentClaim).where(
             PaymentClaim.share_link_id == link.id, PaymentClaim.created_at > since))
@@ -302,19 +319,21 @@ async def public_claim(db: AsyncSession, settings: Settings, token: str, data: P
         db.add(PaymentClaim(bill_id=bill.id, person_id=person_id, owner_id=bill.owner_id, share_link_id=link.id,
                             via="person_link" if link.person_id else "group_link",
                             amount_cents=mine.outstanding_cents, currency=split.effective_currency,
-                            expected_total_cents=mine.effective_total_cents, client_key=data.client_key))
+                            expected_total_cents=mine.effective_total_cents, client_key=data.client_key,
+                            claimed_by=account))
         try:
             await db.commit()
         except IntegrityError:  # a parallel tap won the race: theirs stands
             await db.rollback()
-    return await _view(db, settings, link, bill, split)
+    return await _view(db, settings, link, bill, split, viewer)
 
 
-async def public_withdraw(db: AsyncSession, settings: Settings, token: str, client_key: UUID) -> PublicShareOut:
+async def public_withdraw(db: AsyncSession, settings: Settings, token: str, client_key: UUID,
+                          viewer: CurrentUser | None = None) -> PublicShareOut:
     """Take back an "I've paid" that hasn't been confirmed yet (only from the same link)."""
     link, bill, split = await _resolve(db, token)
     await db.execute(update(PaymentClaim).where(
         PaymentClaim.share_link_id == link.id, PaymentClaim.client_key == client_key,
         PaymentClaim.status == "claimed").values(status="withdrawn", decided_at=datetime.now(UTC)))
     await db.commit()
-    return await _view(db, settings, link, bill, split)
+    return await _view(db, settings, link, bill, split, viewer)

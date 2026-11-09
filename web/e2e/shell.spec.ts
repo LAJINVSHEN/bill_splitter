@@ -29,10 +29,12 @@ test.describe('signed out', () => {
 test('shell: main navigation reaches every section without sideways scroll', async ({ page }, info) => {
   await page.goto('/')
   const nav = page.getByRole('navigation', { name: 'Main' }).filter({ visible: true })
-  const sections = info.project.name === 'mobile' ? ['Bills', 'People', 'Me', 'Home'] : ['Bills', 'People', 'Account', 'Admin', 'Home']
+  const sections = info.project.name === 'mobile' ? ['Bills', 'People', 'Me', 'Home'] : ['Bills', 'People', 'Mailbox', 'Account', 'Admin', 'Home']
   for (const name of sections) {
-    await nav.getByRole('link', { name, exact: true }).click()
-    await expect(nav.getByRole('link', { name, exact: true })).toHaveAttribute('aria-current', 'page')
+    // by prefix: a link with a count reads "Mailbox 2 new"
+    const link = nav.getByRole('link', { name: new RegExp(`^${name}(\\s|$)`) })
+    await link.click()
+    await expect(link).toHaveAttribute('aria-current', 'page')
     await expectNoHorizontalOverflow(page)
   }
 })

@@ -23,6 +23,9 @@ export interface AuthClient {
 
 export class AuthError extends Error {}
 
+/** Google returns to the site root: where to continue after it (e.g. back to a share link). */
+export const NEXT_KEY = 'even.next'
+
 export function usernameToEmail(username: string): string {
   const u = username.trim().toLowerCase()
   return u.includes('@') ? u : `${u}@${env.authEmailDomain}`

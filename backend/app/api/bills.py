@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated, Literal, get_args
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Header, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -16,6 +16,7 @@ from app.schemas.bills import (
     BillPatch,
     BillStatus,
     BillSummaryOut,
+    ClaimMineIn,
     ParticipantsIn,
     QuickSplitIn,
     ReceiptIn,
@@ -23,12 +24,17 @@ from app.schemas.bills import (
     SplitOut,
 )
 from app.schemas.common import Page
+from app.schemas.social import LiveOut
 from app.services import bills as svc
+from app.services import claims as claims_svc
 from app.services.container import ServicesDep
 
 router = APIRouter(prefix="/bills", tags=["bills"])
 DB = Annotated[AsyncSession, Depends(get_db)]
 _STATUSES = set(get_args(BillStatus))
+# The bill version the client edited from (BillOut.version). A stale save is refused (409
+# bill_changed) only when someone else changed the same thing since.
+BaseVersion = Annotated[int | None, Header(alias="X-Bill-Version", ge=1)]
 
 
 @router.get("", response_model=Page[BillSummaryOut])
@@ -66,6 +72,14 @@ async def get_bill(bill_id: UUID, user: CurrentUserDep, db: DB) -> BillOut:
     return await svc.get_bill(db, user, bill_id)
 
 
+@router.get("/{bill_id}/live", response_model=LiveOut)
+async def live(bill_id: UUID, user: CurrentUserDep, db: DB,
+               version: Annotated[int | None, Query(ge=1)] = None) -> LiveOut:
+    """Poll while a shared bill is open: its version, who has it open, and the whole bill when
+    ``version`` is behind."""
+    return await svc.live(db, user, bill_id, version)
+
+
 @router.patch("/{bill_id}", response_model=BillOut)
 async def patch_bill(bill_id: UUID, data: BillPatch, user: CurrentUserDep, db: DB) -> BillOut:
     return await svc.patch_bill(db, user, bill_id, data)
@@ -79,9 +93,10 @@ async def delete_bill(bill_id: UUID, user: CurrentUserDep, db: DB, services: Ser
 
 
 @router.put("/{bill_id}/receipt", response_model=BillOut)
-async def put_receipt(bill_id: UUID, data: ReceiptIn, user: CurrentUserDep, db: DB) -> BillOut:
+async def put_receipt(bill_id: UUID, data: ReceiptIn, user: CurrentUserDep, db: DB,
+                      base_version: BaseVersion = None) -> BillOut:
     """Replace items + charges + totals. Always saves (autosave); ``validation`` says if it reconciles."""
-    return await svc.put_receipt(db, user, bill_id, data)
+    return await svc.put_receipt(db, user, bill_id, data, base_version)
 
 
 @router.put("/{bill_id}/participants", response_model=BillOut)
@@ -90,15 +105,17 @@ async def put_participants(bill_id: UUID, data: ParticipantsIn, user: CurrentUse
 
 
 @router.put("/{bill_id}/assignments", response_model=BillOut)
-async def put_assignments(bill_id: UUID, data: AssignmentsIn, user: CurrentUserDep, db: DB) -> BillOut:
+async def put_assignments(bill_id: UUID, data: AssignmentsIn, user: CurrentUserDep, db: DB,
+                          base_version: BaseVersion = None) -> BillOut:
     """Replace the shares of the listed items only (others are untouched)."""
-    return await svc.put_assignments(db, user, bill_id, data)
+    return await svc.put_assignments(db, user, bill_id, data, base_version)
 
 
 @router.put("/{bill_id}/quick", response_model=BillOut)
-async def put_quick(bill_id: UUID, data: QuickSplitIn, user: CurrentUserDep, db: DB) -> BillOut:
+async def put_quick(bill_id: UUID, data: QuickSplitIn, user: CurrentUserDep, db: DB,
+                    base_version: BaseVersion = None) -> BillOut:
     """Quick split (no receipt): total shared equally or by shares."""
-    return await svc.put_quick(db, user, bill_id, data)
+    return await svc.put_quick(db, user, bill_id, data, base_version)
 
 
 @router.get("/{bill_id}/split", response_model=SplitOut)
@@ -116,3 +133,14 @@ async def settle(bill_id: UUID, person_id: UUID, user: CurrentUserDep, db: DB,
 @router.delete("/{bill_id}/participants/{person_id}/settlement", response_model=BillOut)
 async def unsettle(bill_id: UUID, person_id: UUID, user: CurrentUserDep, db: DB) -> BillOut:
     return await svc.unsettle(db, user, bill_id, person_id)
+
+
+@router.post("/{bill_id}/claims/mine", response_model=BillOut)
+async def claim_mine(bill_id: UUID, data: ClaimMineIn, user: CurrentUserDep, db: DB) -> BillOut:
+    """ "I've paid" on a bill shared with you (your full amount). The owner confirms it."""
+    return await claims_svc.claim_mine(db, user, bill_id, data.client_key)
+
+
+@router.delete("/{bill_id}/claims/mine", response_model=BillOut)
+async def withdraw_mine(bill_id: UUID, user: CurrentUserDep, db: DB) -> BillOut:
+    return await claims_svc.withdraw_mine(db, user, bill_id)

@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.errors import AppError, Conflict, NotFound
-from app.models import Person
+from app.models import Person, Profile
 from app.repositories import people as repo
 from app.schemas.people import PeopleList, PersonCreate, PersonOut, PersonPatch
 
@@ -31,9 +31,26 @@ async def ensure_self(db: AsyncSession, owner_id: UUID, display_name: str) -> Pe
     return me
 
 
+async def person_out(db: AsyncSession, person: Person, *, pending: dict[UUID, str] | None = None,
+                     usernames: dict[UUID, str] | None = None) -> PersonOut:
+    out = PersonOut.model_validate(person)
+    if person.linked_profile_id is not None:
+        out.account_id = person.linked_profile_id
+        out.username = (usernames or {}).get(person.linked_profile_id) or await db.scalar(
+            select(Profile.username).where(Profile.id == person.linked_profile_id))
+    if pending is not None:
+        out.pending_link_to = pending.get(person.id)
+    return out
+
+
 async def list_people(db: AsyncSession, owner_id: UUID, include_archived: bool) -> PeopleList:
+    from app.services.links import pending_for
+
     rows = await repo.list_people(db, owner_id, include_archived=include_archived)
-    return PeopleList(items=[PersonOut.model_validate(p) for p in rows])
+    linked = {p.linked_profile_id for p in rows if p.linked_profile_id}
+    usernames = dict((await db.execute(select(Profile.id, Profile.username).where(Profile.id.in_(linked)))).all())         if linked else {}
+    pending = await pending_for(db, owner_id)
+    return PeopleList(items=[await person_out(db, p, pending=pending, usernames=usernames) for p in rows])
 
 
 async def create_person(db: AsyncSession, owner_id: UUID, data: PersonCreate) -> PersonOut:
@@ -58,10 +75,19 @@ async def patch_person(db: AsyncSession, owner_id: UUID, person_id: UUID, data: 
     if data.archived is not None:
         if data.archived and person.is_self:
             raise Conflict("cannot_archive_self", "You can't remove yourself.")
+        if not data.archived and person.archived_at is not None and person.linked_profile_id is not None:
+            from app.services.friends import are_friends
+
+            if not await are_friends(db, owner_id, person.linked_profile_id):
+                raise Conflict("not_friends", "You're no longer friends, so they stay archived.")
         person.archived_at = datetime.now(UTC) if data.archived else None
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:  # another entry for the same friend is already active
+        await db.rollback()
+        raise Conflict("friend_listed", "This friend is already in your people.") from None
     await db.refresh(person)
-    return PersonOut.model_validate(person)
+    return await person_out(db, person)
 
 
 async def archive_person(db: AsyncSession, owner_id: UUID, person_id: UUID) -> None:

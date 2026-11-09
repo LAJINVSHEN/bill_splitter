@@ -93,6 +93,10 @@ def claims_limit() -> str:
     return get_settings().rate_limit_claims
 
 
+def friend_request_limit() -> str:
+    return get_settings().rate_limit_friend_requests
+
+
 def admin_create_limit() -> str:
     return get_settings().rate_limit_admin_create
 

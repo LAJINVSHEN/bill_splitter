@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.middleware.auth import CurrentUserDep
+from app.middleware.auth import CurrentUserDep, OptionalUserDep
 from app.ratelimit import claims_limit, ip_key, limiter, public_limit
 from app.schemas.bills import BillOut, ClaimConfirmIn
 from app.schemas.share import (
@@ -93,24 +93,24 @@ def _private(response: Response) -> None:
 @router.get("/public/share/{token}", response_model=PublicShareOut)
 @limiter.limit(public_limit, key_func=ip_key)
 async def public_share(request: Request, token: str, db: DB, response: Response,
-                       services: ServicesDep) -> PublicShareOut:
-    """No login. Minimal data; 404 for unknown/revoked/expired links."""
+                       services: ServicesDep, viewer: OptionalUserDep) -> PublicShareOut:
+    """No login needed. Minimal data; 404 for unknown/revoked/expired links."""
     _private(response)
-    return await svc.public_view(db, services.settings, token)
+    return await svc.public_view(db, services.settings, token, viewer)
 
 
 @router.post("/public/share/{token}/claims", response_model=PublicShareOut)
 @limiter.limit(claims_limit, key_func=ip_key)
 async def public_claim(request: Request, token: str, data: PublicClaimIn, db: DB, response: Response,
-                       services: ServicesDep) -> PublicShareOut:
+                       services: ServicesDep, viewer: OptionalUserDep) -> PublicShareOut:
     """ "I've paid" (their full amount). The owner still confirms it. Safe to retry with the same client_key."""
     _private(response)
-    return await svc.public_claim(db, services.settings, token, data)
+    return await svc.public_claim(db, services.settings, token, data, viewer)
 
 
 @router.delete("/public/share/{token}/claims/{client_key}", response_model=PublicShareOut)
 @limiter.limit(claims_limit, key_func=ip_key)
 async def public_withdraw(request: Request, token: str, client_key: UUID, db: DB, response: Response,
-                          services: ServicesDep) -> PublicShareOut:
+                          services: ServicesDep, viewer: OptionalUserDep) -> PublicShareOut:
     _private(response)
-    return await svc.public_withdraw(db, services.settings, token, client_key)
+    return await svc.public_withdraw(db, services.settings, token, client_key, viewer)

@@ -41,6 +41,8 @@ class Profile(Base):
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # How friends pay this user back, e.g. "PayNow 9123 4567" (shown on share links they're the payer of).
     payment_note: Mapped[str | None] = mapped_column(Text)
+    # Others can find this account by its exact email or username (friend requests).
+    discoverable: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = created_at_col()
     updated_at: Mapped[datetime] = updated_at_col()
 
@@ -50,6 +52,7 @@ class Profile(Base):
         CheckConstraint("username = lower(username)", name="username_lower"),
         CheckConstraint("monthly_scan_quota >= 0", name="quota_nonneg"),
         CheckConstraint("default_currency ~ '^[A-Z]{3}$'", name="currency"),
+        Index("uq_profiles_email_lower", text("lower(email)"), unique=True, postgresql_where=text("email IS NOT NULL")),
     )
 
 
@@ -67,11 +70,25 @@ class Person(Base):
     is_self: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # A friend's account (or a placeholder whose owner accepted the link). NULL = placeholder.
+    # The owner's own "Me" stays NULL here: ``account_of`` treats it as the owner.
+    linked_profile_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL")
+    )
     created_at: Mapped[datetime] = created_at_col()
     updated_at: Mapped[datetime] = updated_at_col()
 
+    @property
+    def account_id(self) -> uuid.UUID | None:
+        """The account this entry stands for (the owner for "Me"), None for a placeholder."""
+        return self.owner_id if self.is_self else self.linked_profile_id
+
     __table_args__ = (
         CheckConstraint("char_length(name) BETWEEN 1 AND 60", name="name_len"),
+        CheckConstraint("NOT (is_self AND linked_profile_id IS NOT NULL)", name="self_unlinked"),
+        Index("ix_people_linked_profile_id", "linked_profile_id"),
+        Index("uq_people_owner_linked_active", "owner_id", "linked_profile_id", unique=True,
+              postgresql_where=text("linked_profile_id IS NOT NULL AND archived_at IS NULL")),
         CheckConstraint("color_seed BETWEEN 0 AND 359", name="color_seed"),
         Index("ix_people_owner_id", "owner_id"),
         Index("uq_people_owner_self", "owner_id", unique=True, postgresql_where=text("is_self")),
